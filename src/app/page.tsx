@@ -1,3 +1,5 @@
+import { redirect } from "next/navigation";
+import { createClient } from "@/lib/supabase/server";
 import {
   Activity, ArrowUpLeft, Bell, BriefcaseBusiness, ChartNoAxesCombined,
   CircleHelp, Compass, LayoutDashboard, Search, Settings2, ShieldCheck,
@@ -19,7 +21,12 @@ const nav = [
   { label: "التقارير والتحليلات", icon: ChartNoAxesCombined },
 ];
 
-export default function Home() {
+export default async function Home() {
+  if (process.env.NEXT_PUBLIC_SUPABASE_URL && process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY) {
+    const supabase = await createClient();
+    const { data: { user } } = await supabase.auth.getUser();
+    if (!user) redirect('/login');
+  }
   return (
     <main className="min-h-screen lg:grid lg:grid-cols-[260px_1fr]">
       <aside className="border-l border-border bg-card p-5 lg:min-h-screen">
