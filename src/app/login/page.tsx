@@ -48,7 +48,7 @@ export default function LoginPage() {
           {error && <p role="alert" className="rounded-xl bg-red-500/10 p-3 text-sm text-red-600">{error}</p>}
           <button disabled={loading} className="flex w-full items-center justify-center gap-2 rounded-xl bg-primary py-3 font-bold text-white disabled:opacity-60">{loading && <LoaderCircle className="animate-spin" size={17}/>}تسجيل الدخول</button>
         </form>
-        <p className="mt-6 text-center text-sm text-slate-500">ليس لديك حساب؟ <Link href="/signup" className="font-bold text-primary">إنشاء حساب</Link></p>
+        <p className="mt-6 text-center text-sm text-slate-500"><Link href="/forgot-password" className="mb-3 block text-center font-bold text-primary">نسيت كلمة المرور؟</Link><span>ليس لديك حساب؟ </span><Link href="/signup" className="font-bold text-primary">إنشاء حساب</Link></p>
       </section>
     </main>
   );
