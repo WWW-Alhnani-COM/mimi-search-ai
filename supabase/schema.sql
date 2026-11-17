@@ -1,5 +1,5 @@
 -- Mimi Search AI initial schema
--- Run in the Supabase SQL Editor. All tenant-owned tables use RLS.
+-- Run in Supabase SQL Editor. Tenant-owned tables use RLS.
 
 create extension if not exists pgcrypto;
 
@@ -45,7 +45,6 @@ create table if not exists public.activity_logs (
 create index if not exists workspace_members_user_id_idx on public.workspace_members(user_id);
 create index if not exists activity_logs_workspace_created_idx on public.activity_logs(workspace_id, created_at desc);
 
--- Create a profile and a personal workspace when a new Auth user signs up.
 create or replace function public.handle_new_user()
 returns trigger
 language plpgsql
@@ -70,15 +69,13 @@ begin
 
   insert into public.workspace_settings (workspace_id)
   values (new_workspace_id);
-
   return new;
 end;
 $$;
 
 drop trigger if exists on_auth_user_created on auth.users;
-create trigger on_auth_user_created
-  after insert on auth.users
-  for each row execute procedure public.handle_new_user();
+create trigger on_auth_user_created after insert on auth.users
+for each row execute procedure public.handle_new_user();
 
 create or replace function public.is_workspace_member(target_workspace uuid)
 returns boolean
@@ -99,54 +96,77 @@ alter table public.workspace_members enable row level security;
 alter table public.workspace_settings enable row level security;
 alter table public.activity_logs enable row level security;
 
-create policy "profiles_select_self" on public.profiles
-  for select to authenticated using (id = (select auth.uid()));
-create policy "profiles_update_self" on public.profiles
-  for update to authenticated using (id = (select auth.uid()))
-  with check (id = (select auth.uid()));
+drop policy if exists profiles_select_self on public.profiles;
+create policy profiles_select_self on public.profiles
+for select to authenticated using (id = (select auth.uid()));
 
-create policy "workspace_select_members" on public.workspaces
-  for select to authenticated using (public.is_workspace_member(id));
-create policy "workspace_update_admins" on public.workspaces
-  for update to authenticated using (
-    exists (select 1 from public.workspace_members wm
-      where wm.workspace_id = id and wm.user_id = (select auth.uid())
-      and wm.role in ('owner', 'admin'))
-  ) with check (
-    exists (select 1 from public.workspace_members wm
-      where wm.workspace_id = id and wm.user_id = (select auth.uid())
-      and wm.role in ('owner', 'admin'))
-  );
+drop policy if exists profiles_update_self on public.profiles;
+create policy profiles_update_self on public.profiles
+for update to authenticated using (id = (select auth.uid()))
+with check (id = (select auth.uid()));
 
-create policy "members_select_same_workspace" on public.workspace_members
-  for select to authenticated using (public.is_workspace_member(workspace_id));
+drop policy if exists workspace_select_members on public.workspaces;
+create policy workspace_select_members on public.workspaces
+for select to authenticated using (public.is_workspace_member(id));
 
-create policy "settings_select_members" on public.workspace_settings
-  for select to authenticated using (public.is_workspace_member(workspace_id));
-create policy "settings_update_admins" on public.workspace_settings
-  for update to authenticated using (
-    exists (select 1 from public.workspace_members wm
-      where wm.workspace_id = workspace_settings.workspace_id and wm.user_id = (select auth.uid())
-      and wm.role in ('owner', 'admin'))
-  ) with check (public.is_workspace_member(workspace_id));
+drop policy if exists workspace_update_admins on public.workspaces;
+create policy workspace_update_admins on public.workspaces
+for update to authenticated
+using (exists (
+  select 1 from public.workspace_members wm
+  where wm.workspace_id = id and wm.user_id = (select auth.uid())
+  and wm.role in ('owner', 'admin')
+))
+with check (exists (
+  select 1 from public.workspace_members wm
+  where wm.workspace_id = id and wm.user_id = (select auth.uid())
+  and wm.role in ('owner', 'admin')
+));
 
-create policy "activity_select_members" on public.activity_logs
-  for select to authenticated using (public.is_workspace_member(workspace_id));
-create policy "activity_insert_members" on public.activity_logs
-  for insert to authenticated with check (
-    user_id = (select auth.uid()) and public.is_workspace_member(workspace_id)
-  );
+drop policy if exists members_select_same_workspace on public.workspace_members;
+create policy members_select_same_workspace on public.workspace_members
+for select to authenticated using (public.is_workspace_member(workspace_id));
 
--- Do not grant anonymous access to tenant data.
+drop policy if exists settings_select_members on public.workspace_settings;
+create policy settings_select_members on public.workspace_settings
+for select to authenticated using (public.is_workspace_member(workspace_id));
+
+drop policy if exists settings_update_admins on public.workspace_settings;
+create policy settings_update_admins on public.workspace_settings
+for update to authenticated
+using (exists (
+  select 1 from public.workspace_members wm
+  where wm.workspace_id = workspace_settings.workspace_id
+  and wm.user_id = (select auth.uid()) and wm.role in ('owner', 'admin')
+))
+with check (exists (
+  select 1 from public.workspace_members wm
+  where wm.workspace_id = workspace_settings.workspace_id
+  and wm.user_id = (select auth.uid()) and wm.role in ('owner', 'admin')
+));
+
+drop policy if exists activity_select_members on public.activity_logs;
+create policy activity_select_members on public.activity_logs
+for select to authenticated using (public.is_workspace_member(workspace_id));
+
+drop policy if exists activity_insert_members on public.activity_logs;
+create policy activity_insert_members on public.activity_logs
+for insert to authenticated with check (
+  user_id = (select auth.uid()) and public.is_workspace_member(workspace_id)
+);
+
+-- Remove broad table-level UPDATE grants, then grant only editable columns.
+revoke update on table public.profiles from authenticated;
+revoke update on table public.workspaces from authenticated;
+revoke update on table public.workspace_settings from authenticated;
 grant usage on schema public to authenticated;
-grant select, update on public.profiles to authenticated;
-grant select, update on public.workspaces to authenticated;
-grant select on public.workspace_members to authenticated;
-grant select, update on public.workspace_settings to authenticated;
-grant select, insert on public.activity_logs to authenticated;
+grant select on public.profiles, public.workspaces, public.workspace_members,
+  public.workspace_settings, public.activity_logs to authenticated;
+grant update (full_name, avatar_url) on public.profiles to authenticated;
+grant update (name) on public.workspaces to authenticated;
+grant update (timezone, preferences) on public.workspace_settings to authenticated;
+grant insert on public.activity_logs to authenticated;
 
-
--- Restrict helper execution to signed-in users.
 revoke all on function public.is_workspace_member(uuid) from public;
 revoke all on function public.is_workspace_member(uuid) from anon;
 grant execute on function public.is_workspace_member(uuid) to authenticated;
