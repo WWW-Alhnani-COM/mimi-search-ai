@@ -45,3 +45,25 @@ See `.env.example`. Never commit real credentials, service-role keys, or Telegra
 ## License
 
 All rights reserved unless a license is added by the repository owner.
+
+
+## Supabase setup
+
+1. Create a Supabase project.
+2. Open the SQL Editor and run `supabase/schema.sql`.
+3. Copy the project URL and anon/public key into `.env.local`.
+4. In Supabase Authentication, configure the site URL and redirect URLs for local development and the deployed domain.
+5. Enable email/password authentication and configure email confirmation as required.
+
+## Deployment on Vercel
+
+1. Import this GitHub repository into Vercel.
+2. Add `NEXT_PUBLIC_SUPABASE_URL` and `NEXT_PUBLIC_SUPABASE_ANON_KEY` to the project environment.
+3. Deploy the `main` branch.
+4. Add the deployed domain to Supabase Auth redirect URLs.
+
+## Current milestone boundaries
+
+Included: Arabic dashboard shell, responsive layout, theme provider, email sign-in/sign-up, password recovery screens, Supabase client helpers, initial workspace schema, RLS policies, and CI workflow.
+
+Not included yet: live lead ingestion, Telegram MTProto connection, X API integration, CRM persistence, scheduled workers, and production security review. Dashboard metrics are placeholders until the lead and CRM modules are implemented.
