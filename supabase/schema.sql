@@ -112,7 +112,11 @@ create policy "workspace_update_admins" on public.workspaces
     exists (select 1 from public.workspace_members wm
       where wm.workspace_id = id and wm.user_id = (select auth.uid())
       and wm.role in ('owner', 'admin'))
-  ) with check (public.is_workspace_member(id));
+  ) with check (
+    exists (select 1 from public.workspace_members wm
+      where wm.workspace_id = id and wm.user_id = (select auth.uid())
+      and wm.role in ('owner', 'admin'))
+  );
 
 create policy "members_select_same_workspace" on public.workspace_members
   for select to authenticated using (public.is_workspace_member(workspace_id));
