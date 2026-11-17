@@ -1,14 +1,22 @@
 import { createServerClient } from "@supabase/ssr";
 import { NextResponse, type NextRequest } from "next/server";
 
+const publicPaths = ["/login", "/signup", "/forgot-password", "/reset-password", "/auth/callback", "/setup-required"];
+
 export async function middleware(request: NextRequest) {
+  const { pathname } = request.nextUrl;
+  const isPublicPath = publicPaths.some((path) => pathname === path || pathname.startsWith(path + "/"));
+  const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
+  const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
+
+  if (!supabaseUrl || !supabaseAnonKey) {
+    if (pathname === "/setup-required" || pathname.startsWith("/_next/")) return NextResponse.next();
+    if (isPublicPath) return NextResponse.next();
+    return NextResponse.redirect(new URL("/setup-required", request.url));
+  }
+
   let response = NextResponse.next({ request });
-  const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
-  const key = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
-
-  if (!url || !key) return response;
-
-  const supabase = createServerClient(url, key, {
+  const supabase = createServerClient(supabaseUrl, supabaseAnonKey, {
     cookies: {
       getAll: () => request.cookies.getAll(),
       setAll(cookiesToSet) {
@@ -19,7 +27,15 @@ export async function middleware(request: NextRequest) {
     },
   });
 
-  await supabase.auth.getUser();
+  const { data: { user }, error } = await supabase.auth.getUser();
+  if ((error || !user) && !isPublicPath) {
+    const loginUrl = new URL("/login", request.url);
+    loginUrl.searchParams.set("next", pathname);
+    return NextResponse.redirect(loginUrl);
+  }
+  if (user && (pathname === "/login" || pathname === "/signup")) {
+    return NextResponse.redirect(new URL("/", request.url));
+  }
   return response;
 }
 
