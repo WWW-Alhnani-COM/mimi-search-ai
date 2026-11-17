@@ -122,7 +122,7 @@ create policy "settings_select_members" on public.workspace_settings
 create policy "settings_update_admins" on public.workspace_settings
   for update to authenticated using (
     exists (select 1 from public.workspace_members wm
-      where wm.workspace_id = workspace_id and wm.user_id = (select auth.uid())
+      where wm.workspace_id = workspace_settings.workspace_id and wm.user_id = (select auth.uid())
       and wm.role in ('owner', 'admin'))
   ) with check (public.is_workspace_member(workspace_id));
 
@@ -140,3 +140,9 @@ grant select, update on public.workspaces to authenticated;
 grant select on public.workspace_members to authenticated;
 grant select, update on public.workspace_settings to authenticated;
 grant select, insert on public.activity_logs to authenticated;
+
+
+-- Restrict helper execution to signed-in users.
+revoke all on function public.is_workspace_member(uuid) from public;
+revoke all on function public.is_workspace_member(uuid) from anon;
+grant execute on function public.is_workspace_member(uuid) to authenticated;
