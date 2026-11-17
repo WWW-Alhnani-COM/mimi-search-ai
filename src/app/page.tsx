@@ -1,3 +1,4 @@
+import { ThemeToggle } from "@/components/theme-toggle";
 import { redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
 import {
@@ -52,7 +53,7 @@ export default async function Home() {
       <section className="min-w-0 p-5 md:p-8">
         <header className="mb-9 flex flex-wrap items-center justify-between gap-4">
           <div><p className="mb-2 text-sm text-slate-500">مساحة العمل / لوحة التحكم</p><h1 className="text-2xl font-black md:text-3xl">نظرة عامة</h1><p className="mt-2 text-sm text-slate-500">تابع فرصك التقنية والعملاء المحتملين من مكان واحد.</p></div>
-          <div className="flex items-center gap-2"><button aria-label="الإشعارات" className="rounded-xl border border-border bg-card p-3 text-slate-500"><Bell size={18}/></button><div className="grid h-10 w-10 place-items-center rounded-full bg-primary/10 font-bold text-primary">م</div></div>
+          <div className="flex items-center gap-2"><ThemeToggle/><button aria-label="الإشعارات" className="rounded-xl border border-border bg-card p-3 text-slate-500"><Bell size={18}/></button><div className="grid h-10 w-10 place-items-center rounded-full bg-primary/10 font-bold text-primary">م</div></div>
         </header>
 
         <div className="mb-8 grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
