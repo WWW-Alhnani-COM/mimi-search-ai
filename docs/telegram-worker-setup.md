@@ -27,7 +27,7 @@ Gemini is disabled by default. To permit its use, configure:
 - `GEMINI_FREE_TIER_ONLY=true`
 - `GEMINI_BILLING_DISABLED_CONFIRMED=true`
 
-Use a Google AI Studio project with no billing account attached. The code allowlists only `gemini-2.5-flash-lite` and `gemini-2.5-flash`, sends no Google Search Grounding requests, and enforces a workspace daily request cap (maximum 100). If either confirmation flag is missing, Gemini is not called and deterministic local analysis remains active. The confirmation flag cannot independently verify the billing state of the Google project.
+Use a Google AI Studio project with no billing account attached. Google states that content submitted on the free tier may be used to improve its products; do not enable this option if that data-use condition is not acceptable. The code allowlists only `gemini-2.5-flash-lite` and `gemini-2.5-flash`, sends no Google Search Grounding requests, and enforces a workspace daily request cap (maximum 100). If either confirmation flag is missing, Gemini is not called and deterministic local analysis remains active. The confirmation flag cannot independently verify the billing state of the Google project.
 
 ## 3. Supabase worker schedule
 
