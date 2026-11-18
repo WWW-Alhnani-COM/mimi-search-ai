@@ -8,13 +8,14 @@ type Workspace = { id: string; name: string; canManage: boolean };
 type DiscoverySource = { channel_id: string; source_kind: string; source_url: string | null; search_query: string | null; discovered_at: string };
 type Country = { code: string; name_ar: string; name_en: string };
 type Channel = {
-  id: string; workspace_id: string; username: string | null; title: string | null; about: string | null;
+  id: string; workspace_id: string; username: string | null; title: string | null; about: string | null; collection_enabled: boolean;
   public_url: string | null; status: string; country_code: string | null; city_id: string | null;
   category: string | null; discovery_method: string; evaluation_score: number | null; created_at: string;
 };
 type Rule = { id: string; rule_type: "include" | "exclude"; match_type: string; rule_value: string; country_code: string | null; enabled: boolean; priority: number };
-type Settings = { discovery_enabled: boolean; schedule_interval: string; auto_approve_enabled: boolean; minimum_approval_score: number; default_history_days: number };
+type Settings = { discovery_enabled: boolean; schedule_interval: string; auto_approve_enabled: boolean; minimum_approval_score: number; default_history_days: number; ai_enabled: boolean; ai_provider: "local" | "gemini"; ai_model: string; ai_daily_request_limit: number };
 type City = { id: string; country_code: string; name_ar: string };
+type WorkerTask = { id: string; task_type: string; status: string; attempts: number; last_error: string | null; created_at: string; finished_at: string | null };
 
 const statusLabels: Record<string, string> = {
   candidate: "مرشحة", review: "قيد المراجعة", approved: "معتمدة",
@@ -31,6 +32,7 @@ const statusStyles: Record<string, string> = {
 const initialSettings: Settings = {
   discovery_enabled: false, schedule_interval: "daily", auto_approve_enabled: false,
   minimum_approval_score: 85, default_history_days: 10,
+  ai_enabled: false, ai_provider: "local", ai_model: "gemini-3.5-flash-lite", ai_daily_request_limit: 50,
 };
 
 export function TelegramChannelManager({ workspaces, countries }: { workspaces: Workspace[]; countries: Country[] }) {
@@ -40,6 +42,9 @@ export function TelegramChannelManager({ workspaces, countries }: { workspaces: 
   const [sources, setSources] = useState<DiscoverySource[]>([]);
   const [rules, setRules] = useState<Rule[]>([]);
   const [cities, setCities] = useState<City[]>([]);
+  const [aiUsage, setAiUsage] = useState({ requests: 0, input_tokens: 0, output_tokens: 0 });
+  const [workerTasks, setWorkerTasks] = useState<WorkerTask[]>([]);
+  const [discoveryUsage, setDiscoveryUsage] = useState(0);
   const [settings, setSettings] = useState<Settings>(initialSettings);
   const [tab, setTab] = useState<"channels" | "rules" | "settings">("channels");
   const [statusFilter, setStatusFilter] = useState("all");
@@ -56,26 +61,38 @@ export function TelegramChannelManager({ workspaces, countries }: { workspaces: 
   const [ruleCountry, setRuleCountry] = useState("");
   const [loading, setLoading] = useState(false);
   const [saving, setSaving] = useState(false);
+  const [discovering, setDiscovering] = useState(false);
+  const [collectingChannelId, setCollectingChannelId] = useState<string | null>(null);
   const [message, setMessage] = useState("");
   const [error, setError] = useState("");
 
   const load = useCallback(async () => {
     if (!workspaceId) return;
     setLoading(true); setError("");
-    const [channelResult, ruleResult, settingsResult, cityResult, sourceResult] = await Promise.all([
-      supabase.from("telegram_channels").select("id,workspace_id,username,title,about,public_url,status,country_code,city_id,category,discovery_method,evaluation_score,created_at").eq("workspace_id", workspaceId).order("created_at", { ascending: false }),
+    const [channelResult, ruleResult, settingsResult, cityResult, sourceResult, taskResult] = await Promise.all([
+      supabase.from("telegram_channels").select("id,workspace_id,username,title,about,public_url,status,country_code,city_id,category,discovery_method,evaluation_score,collection_enabled,created_at").eq("workspace_id", workspaceId).order("created_at", { ascending: false }),
       supabase.from("telegram_channel_rules").select("id,rule_type,match_type,rule_value,country_code,enabled,priority").eq("workspace_id", workspaceId).order("priority"),
-      supabase.from("telegram_discovery_settings").select("discovery_enabled,schedule_interval,auto_approve_enabled,minimum_approval_score,default_history_days").eq("workspace_id", workspaceId).maybeSingle(),
+      supabase.from("telegram_discovery_settings").select("discovery_enabled,schedule_interval,auto_approve_enabled,minimum_approval_score,default_history_days,ai_enabled,ai_provider,ai_model,ai_daily_request_limit").eq("workspace_id", workspaceId).maybeSingle(),
       supabase.from("cities").select("id,country_code,name_ar").order("name_ar"),
       supabase.from("telegram_channel_discovery_sources").select("channel_id,source_kind,source_url,search_query,discovered_at").eq("workspace_id", workspaceId).order("discovered_at", { ascending: false }),
+      supabase.from("telegram_worker_tasks").select("id,task_type,status,attempts,last_error,created_at,finished_at").eq("workspace_id", workspaceId).order("created_at", { ascending: false }).limit(8),
     ]);
-    const firstError = channelResult.error ?? ruleResult.error ?? settingsResult.error ?? cityResult.error ?? sourceResult.error;
+    const firstError = channelResult.error ?? ruleResult.error ?? settingsResult.error ?? cityResult.error ?? sourceResult.error ?? taskResult.error;
     if (firstError) setError("تعذر تحميل بيانات إدارة القنوات. تحقق من تطبيق ترحيل قاعدة البيانات وصلاحيات مساحة العمل.");
     setChannels((channelResult.data ?? []) as Channel[]);
     setSources((sourceResult.data ?? []) as DiscoverySource[]);
+    setWorkerTasks((taskResult.data ?? []) as WorkerTask[]);
     setRules((ruleResult.data ?? []) as Rule[]);
     setSettings(settingsResult.data ? { ...initialSettings, ...settingsResult.data } : initialSettings);
     setCities((cityResult.data ?? []) as City[]);
+    const monthStart = new Date(Date.UTC(new Date().getUTCFullYear(), new Date().getUTCMonth(), 1)).toISOString().slice(0, 10);
+    const { data: searchUsage } = await supabase.from("telegram_discovery_provider_usage")
+      .select("requests").eq("provider", "tavily").eq("usage_month", monthStart).maybeSingle();
+    setDiscoveryUsage(Number(searchUsage?.requests ?? 0));
+    const usageDate = new Date().toISOString().slice(0, 10);
+    const { data: usage } = await supabase.from("telegram_ai_usage")
+      .select("requests,input_tokens,output_tokens").eq("workspace_id", workspaceId).eq("usage_date", usageDate).maybeSingle();
+    setAiUsage(usage ?? { requests: 0, input_tokens: 0, output_tokens: 0 });
     setLoading(false);
   }, [supabase, workspaceId]);
 
@@ -97,6 +114,73 @@ export function TelegramChannelManager({ workspaces, countries }: { workspaces: 
     review: channels.filter((item) => item.status === "review").length,
     approved: channels.filter((item) => item.status === "approved").length,
   }), [channels]);
+
+  async function startDiscovery() {
+    setDiscovering(true); setError(""); setMessage("");
+    try {
+      const response = await fetch("/api/telegram/discovery", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ workspaceId }),
+      });
+      const result = await response.json().catch(() => ({}));
+      if (!response.ok) {
+        const message = result.error === "DISCOVERY_ALREADY_QUEUED"
+          ? "توجد عملية اكتشاف قيد الانتظار بالفعل."
+          : result.error === "WORKSPACE_FORBIDDEN"
+            ? "لا تملك صلاحية تشغيل الاكتشاف في مساحة العمل."
+            : "تعذر وضع عملية الاكتشاف في قائمة المهام.";
+        throw new Error(message);
+      }
+      setMessage(result.alreadyQueued
+        ? "عملية الاكتشاف موجودة بالفعل في قائمة المهام."
+        : "تمت إضافة عملية اكتشاف القنوات إلى قائمة المهام. ستبدأ عند تشغيل العامل الخلفي.");
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "تعذر طلب اكتشاف القنوات.");
+    } finally {
+      setDiscovering(false);
+    }
+  }
+
+  async function toggleScheduledCollection(channel: Channel) {
+    setSaving(true); setError(""); setMessage("");
+    const { error: updateError } = await supabase.from("telegram_channels")
+      .update({ collection_enabled: !channel.collection_enabled, updated_at: new Date().toISOString() })
+      .eq("id", channel.id).eq("workspace_id", workspaceId);
+    if (updateError) setError("تعذر تحديث إعداد الجمع الدوري.");
+    else {
+      setMessage(channel.collection_enabled ? "تم إيقاف الجمع الدوري لهذه القناة." : "تم تفعيل الجمع الدوري لهذه القناة.");
+      await load();
+    }
+    setSaving(false);
+  }
+
+  async function startCollection(channel: Channel) {
+    setCollectingChannelId(channel.id); setError(""); setMessage("");
+    try {
+      const response = await fetch("/api/telegram/collect", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ workspaceId, channelId: channel.id }),
+      });
+      const result = await response.json().catch(() => ({}));
+      if (!response.ok) {
+        const message = result.error === "CHANNEL_NOT_APPROVED"
+          ? "يجب اعتماد القناة قبل جمع منشوراتها."
+          : result.error === "WORKSPACE_FORBIDDEN"
+            ? "لا تملك صلاحية تشغيل الجمع في مساحة العمل."
+            : "تعذر وضع مهمة جمع المنشورات في قائمة الانتظار.";
+        throw new Error(message);
+      }
+      setMessage(result.alreadyQueued
+        ? "توجد مهمة جمع منشورات لهذه القناة بالفعل."
+        : "تمت إضافة مهمة جمع منشورات القناة إلى قائمة الانتظار.");
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "تعذر طلب جمع المنشورات.");
+    } finally {
+      setCollectingChannelId(null);
+    }
+  }
 
   async function addChannel(event: FormEvent<HTMLFormElement>) {
     event.preventDefault(); setSaving(true); setMessage(""); setError("");
@@ -220,9 +304,23 @@ export function TelegramChannelManager({ workspaces, countries }: { workspaces: 
     {message && <p role="status" className="rounded-xl border border-emerald-300 bg-emerald-50 p-3 text-sm text-emerald-800 dark:border-emerald-900 dark:bg-emerald-950 dark:text-emerald-200">{message}</p>}
     {loading && <div className="flex items-center gap-2 text-sm text-slate-500"><LoaderCircle size={17} className="animate-spin"/>جارٍ تحميل بيانات مساحة العمل…</div>}
 
+    {tab === "channels" && <section className="rounded-2xl border border-border bg-card p-4 md:p-5">
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <h2 className="font-extrabold">حالة محرك المهام</h2>
+        <span className="text-xs text-slate-500">Tavily: {discoveryUsage}/900 طلباً هذا الشهر</span>
+      </div>
+      {workerTasks.length === 0 ? <p className="mt-3 text-sm text-slate-500">لا توجد مهام مسجلة حتى الآن.</p> : <div className="mt-3 space-y-2">
+        {workerTasks.map((task) => <div key={task.id} className="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-border p-3 text-xs">
+          <div><span className="font-bold">{({discover_channels:"اكتشاف قنوات",verify_channel:"التحقق من قناة",collect_channel:"جمع منشورات",process_source_item:"تحليل منشور"} as Record<string,string>)[task.task_type] ?? task.task_type}</span><span className="mx-2 text-slate-400">·</span><span className="text-slate-500">{new Date(task.created_at).toLocaleString("ar")}</span>{task.last_error && <p className="mt-1 text-rose-600">{task.last_error}</p>}</div>
+          <span className={task.status === "completed" ? "text-emerald-600" : task.status === "failed" ? "text-rose-600" : "text-slate-500"}>{({queued:"في الانتظار",running:"قيد التنفيذ",completed:"مكتملة",partial:"جزئية",failed:"فشلت",cancelled:"ملغاة"} as Record<string,string>)[task.status] ?? task.status} · {task.attempts} محاولات</span>
+        </div>)}
+      </div>
+      <p className="mt-3 text-[11px] leading-5 text-slate-500">الرقم المعروض هو استهلاك Mimi Search AI من الحد الداخلي الشهري، وليس قراءة مباشرة من لوحة Tavily.</p>
+    </section>}
+
     {tab === "channels" && <div className="grid gap-5 xl:grid-cols-[minmax(0,1fr)_360px]">
       <section className="min-w-0 rounded-2xl border border-border bg-card p-4 md:p-5">
-        <div className="mb-4 flex flex-wrap items-center justify-between gap-3"><h2 className="font-extrabold">قائمة القنوات</h2><span className="text-xs text-slate-500">{filteredChannels.length} قناة</span></div>
+        <div className="mb-4 flex flex-wrap items-center justify-between gap-3"><h2 className="font-extrabold">قائمة القنوات</h2><div className="flex items-center gap-2"><span className="text-xs text-slate-500">{filteredChannels.length} قناة</span>{canManage && <button type="button" onClick={() => void startDiscovery()} disabled={discovering || saving} className="inline-flex items-center gap-2 rounded-xl bg-primary px-3 py-2 text-xs font-bold text-white disabled:opacity-50"><Search size={14}/>{discovering ? "جارٍ الإرسال…" : "اكتشاف قنوات"}</button>}</div></div>
         <div className="mb-4 grid gap-2 sm:grid-cols-[1fr_180px]">
           <label className="relative"><Search size={16} className="absolute right-3 top-3.5 text-slate-400"/><input value={search} onChange={(event) => setSearch(event.target.value)} placeholder="ابحث بالاسم أو المستخدم أو المجال" className="w-full rounded-xl border border-border bg-background py-3 pr-9 pl-3 text-sm"/></label>
           <select value={statusFilter} onChange={(event) => setStatusFilter(event.target.value)} className="rounded-xl border border-border bg-background px-3 py-3 text-sm"><option value="all">كل الحالات</option>{Object.entries(statusLabels).map(([value, label]) => <option key={value} value={value}>{label}</option>)}</select>
@@ -239,6 +337,8 @@ export function TelegramChannelManager({ workspaces, countries }: { workspaces: 
               <div className="text-xs text-slate-400">{channel.country_code ?? "دون تحديد دولة"} · {channel.evaluation_score === null ? "لم تُقيّم بعد" : `التقييم ${channel.evaluation_score}/100`}</div>
               <div className="flex flex-wrap gap-2">
                 {channel.public_url && <a href={channel.public_url} target="_blank" rel="noreferrer" className="rounded-lg border border-border px-3 py-2 text-xs font-semibold">فتح القناة</a>}
+                {canManage && channel.status === "approved" && <button type="button" disabled={Boolean(collectingChannelId) || saving} onClick={() => void startCollection(channel)} className="rounded-lg border border-primary px-3 py-2 text-xs font-semibold text-primary disabled:opacity-50">{collectingChannelId === channel.id ? "جارٍ الإرسال…" : "جمع المنشورات"}</button>}
+                {canManage && channel.status === "approved" && <button type="button" disabled={saving} onClick={() => void toggleScheduledCollection(channel)} className="rounded-lg border border-border px-3 py-2 text-xs font-semibold disabled:opacity-50">{channel.collection_enabled ? "إيقاف الجمع الدوري" : "تفعيل الجمع الدوري"}</button>}
                 {canManage && channel.status !== "approved" && <button type="button" disabled={saving} onClick={() => void changeStatus(channel, "approved")} className="inline-flex items-center gap-1 rounded-lg bg-emerald-600 px-3 py-2 text-xs font-bold text-white disabled:opacity-50"><Check size={14}/>اعتماد</button>}
                 {canManage && channel.status !== "rejected" && <button type="button" disabled={saving} onClick={() => void changeStatus(channel, "rejected")} className="rounded-lg border border-rose-300 px-3 py-2 text-xs font-semibold text-rose-700 disabled:opacity-50">رفض</button>}
                 {canManage && channel.status !== "paused" && channel.status !== "archived" && <button type="button" disabled={saving} onClick={() => void changeStatus(channel, "paused")} title="إيقاف" className="rounded-lg border border-border p-2 text-slate-500 disabled:opacity-50"><CirclePause size={15}/></button>}
@@ -309,6 +409,36 @@ export function TelegramChannelManager({ workspaces, countries }: { workspaces: 
         <label className="flex items-center justify-between gap-4 rounded-xl border border-border p-4"><span className="text-sm font-bold">الاعتماد التلقائي للقنوات المؤهلة</span><input type="checkbox" checked={settings.auto_approve_enabled} onChange={(event) => setSettings((value) => ({ ...value, auto_approve_enabled: event.target.checked }))} className="h-5 w-5 accent-blue-600"/></label>
         <label className="block text-sm font-semibold">الحد الأدنى لدرجة الاعتماد التلقائي: {settings.minimum_approval_score}/100<input type="range" min="0" max="100" step="5" value={settings.minimum_approval_score} onChange={(event) => setSettings((value) => ({ ...value, minimum_approval_score: Number(event.target.value) }))} className="mt-3 w-full accent-blue-600"/></label>
         <label className="block text-sm font-semibold">النطاق التاريخي الافتراضي للبحث<select value={settings.default_history_days} onChange={(event) => setSettings((value) => ({ ...value, default_history_days: Number(event.target.value) }))} className="mt-2 w-full rounded-xl border border-border bg-background px-3 py-3">{[1,3,7,10,15,30].map((days) => <option key={days} value={days}>آخر {days} {days === 1 ? "يوم" : "أيام"}</option>)}</select></label>
+        <div className="rounded-xl border border-border p-4 space-y-4">
+          <div>
+            <h3 className="font-bold">تحليل الذكاء الاصطناعي</h3>
+            <p className="mt-1 text-xs leading-5 text-slate-500">التحليل المحلي يظل الأساس. Gemini خيار إضافي ولا يعمل إلا عند تفعيل مفاتيح الحماية الخاصة بالمستوى المجاني.</p>
+          </div>
+          <label className="flex items-center justify-between gap-4 text-sm font-semibold">
+            تفعيل التحليل بالذكاء الاصطناعي
+            <input type="checkbox" checked={settings.ai_enabled} onChange={(event) => setSettings((value) => ({ ...value, ai_enabled: event.target.checked }))} className="h-5 w-5 accent-blue-600"/>
+          </label>
+          <label className="block text-sm font-semibold">المزود
+            <select value={settings.ai_provider} onChange={(event) => setSettings((value) => ({ ...value, ai_provider: event.target.value as "local" | "gemini" }))} className="mt-2 w-full rounded-xl border border-border bg-background px-3 py-3">
+              <option value="local">التحليل المحلي فقط</option>
+              <option value="gemini">Google Gemini – المستوى المجاني</option>
+            </select>
+          </label>
+          <label className="block text-sm font-semibold">النموذج
+            <select value={settings.ai_model} onChange={(event) => setSettings((value) => ({ ...value, ai_model: event.target.value }))} className="mt-2 w-full rounded-xl border border-border bg-background px-3 py-3">
+              <option value="gemini-3.5-flash-lite">Gemini 3.5 Flash-Lite</option>
+            </select>
+          </label>
+          <label className="block text-sm font-semibold">الحد اليومي لطلبات الذكاء الاصطناعي: {settings.ai_daily_request_limit}
+            <input type="range" min="1" max="100" step="1" value={settings.ai_daily_request_limit} onChange={(event) => setSettings((value) => ({ ...value, ai_daily_request_limit: Number(event.target.value) }))} className="mt-3 w-full accent-blue-600"/>
+          </label>
+          <div className="rounded-lg bg-background p-3 text-xs leading-6 text-slate-500">
+            استهلاك اليوم: {aiUsage.requests}/{settings.ai_daily_request_limit} طلب · {aiUsage.input_tokens + aiUsage.output_tokens} رمز.
+            <br/>لا يوفر Gemini API رقماً موثوقاً للحصة المجانية المتبقية؛ المعروض هنا استهلاك Mimi Search AI فقط.
+          </div>
+          <p className="text-xs leading-5 text-amber-700 dark:text-amber-300">لمنع الفوترة: لن يرسل النظام طلباً إلا عند تعيين GEMINI_FREE_TIER_ONLY=true وGEMINI_BILLING_DISABLED_CONFIRMED=true واستخدام مشروع Google لا يحتوي على حساب فوترة. لا يتم استخدام Google Search Grounding أو أي نموذج غير مدرج في القائمة.</p>
+          <p className="text-xs leading-5 text-slate-500">تنبيه خصوصية: توضح Google أن محتوى الطلبات في المستوى المجاني قد يُستخدم لتحسين منتجاتها. لا تفعّل هذا الخيار إذا لم تكن موافقاً على مشاركة نصوص المنشورات معها.</p>
+        </div>
         <button disabled={saving} className="w-full rounded-xl bg-primary px-4 py-3 font-bold text-white disabled:opacity-50">حفظ إعدادات مساحة العمل</button>
       </form> : <p className="rounded-xl border border-border p-4 text-sm text-slate-500">إعدادات مساحة العمل مشتركة، لكن حسابك يملك صلاحية القراءة فقط.</p>}
     </section>}
