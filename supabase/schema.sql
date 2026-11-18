@@ -44,6 +44,8 @@ create table if not exists public.activity_logs (
 
 create index if not exists workspace_members_user_id_idx on public.workspace_members(user_id);
 create index if not exists activity_logs_workspace_created_idx on public.activity_logs(workspace_id, created_at desc);
+create index if not exists workspaces_owner_id_idx on public.workspaces(owner_id);
+create index if not exists activity_logs_user_id_idx on public.activity_logs(user_id);
 
 create or replace function public.handle_new_user()
 returns trigger
@@ -77,18 +79,30 @@ drop trigger if exists on_auth_user_created on auth.users;
 create trigger on_auth_user_created after insert on auth.users
 for each row execute procedure public.handle_new_user();
 
-create or replace function public.is_workspace_member(target_workspace uuid)
+revoke all on function public.handle_new_user() from public;
+revoke all on function public.handle_new_user() from anon;
+revoke all on function public.handle_new_user() from authenticated;
+
+create schema if not exists private;
+revoke all on schema private from public;
+grant usage on schema private to authenticated;
+
+create or replace function private.is_workspace_member(target_workspace uuid)
 returns boolean
 language sql
 stable
 security definer
 set search_path = ''
-as $$
+as $
   select exists (
     select 1 from public.workspace_members wm
     where wm.workspace_id = target_workspace and wm.user_id = (select auth.uid())
   );
-$$;
+$;
+
+revoke all on function private.is_workspace_member(uuid) from public;
+revoke all on function private.is_workspace_member(uuid) from anon;
+grant execute on function private.is_workspace_member(uuid) to authenticated;
 
 alter table public.profiles enable row level security;
 alter table public.workspaces enable row level security;
@@ -107,7 +121,7 @@ with check (id = (select auth.uid()));
 
 drop policy if exists workspace_select_members on public.workspaces;
 create policy workspace_select_members on public.workspaces
-for select to authenticated using (public.is_workspace_member(id));
+for select to authenticated using (private.is_workspace_member(id));
 
 drop policy if exists workspace_update_admins on public.workspaces;
 create policy workspace_update_admins on public.workspaces
@@ -125,11 +139,11 @@ with check (exists (
 
 drop policy if exists members_select_same_workspace on public.workspace_members;
 create policy members_select_same_workspace on public.workspace_members
-for select to authenticated using (public.is_workspace_member(workspace_id));
+for select to authenticated using (private.is_workspace_member(workspace_id));
 
 drop policy if exists settings_select_members on public.workspace_settings;
 create policy settings_select_members on public.workspace_settings
-for select to authenticated using (public.is_workspace_member(workspace_id));
+for select to authenticated using (private.is_workspace_member(workspace_id));
 
 drop policy if exists settings_update_admins on public.workspace_settings;
 create policy settings_update_admins on public.workspace_settings
@@ -147,12 +161,12 @@ with check (exists (
 
 drop policy if exists activity_select_members on public.activity_logs;
 create policy activity_select_members on public.activity_logs
-for select to authenticated using (public.is_workspace_member(workspace_id));
+for select to authenticated using (private.is_workspace_member(workspace_id));
 
 drop policy if exists activity_insert_members on public.activity_logs;
 create policy activity_insert_members on public.activity_logs
 for insert to authenticated with check (
-  user_id = (select auth.uid()) and public.is_workspace_member(workspace_id)
+  user_id = (select auth.uid()) and private.is_workspace_member(workspace_id)
 );
 
 -- Remove broad table-level UPDATE grants, then grant only editable columns.
@@ -167,6 +181,6 @@ grant update (name) on public.workspaces to authenticated;
 grant update (timezone, preferences) on public.workspace_settings to authenticated;
 grant insert on public.activity_logs to authenticated;
 
-revoke all on function public.is_workspace_member(uuid) from public;
-revoke all on function public.is_workspace_member(uuid) from anon;
-grant execute on function public.is_workspace_member(uuid) to authenticated;
+revoke all on function private.is_workspace_member(uuid) from public;
+revoke all on function private.is_workspace_member(uuid) from anon;
+grant execute on function private.is_workspace_member(uuid) to authenticated;
