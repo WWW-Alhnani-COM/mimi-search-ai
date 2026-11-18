@@ -11,6 +11,19 @@ import {
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
+function safeTelegramErrorDetails(error: unknown) {
+  if (!(error instanceof Error)) return { errorName: "UnknownError" };
+  const candidate = error as Error & { code?: unknown; errorMessage?: unknown };
+  const safeToken = (value: unknown) =>
+    typeof value === "string" && /^[A-Z0-9_]{1,80}$/i.test(value) ? value : undefined;
+  return {
+    errorName: error.name,
+    messageCode: safeToken(error.message),
+    rpcCode: typeof candidate.code === "number" ? candidate.code : undefined,
+    rpcMessage: safeToken(candidate.errorMessage),
+  };
+}
+
 function safeFailureCode(error: unknown, stage: string): string {
   const message = error instanceof Error ? error.message : "";
   if (message === "UNAUTHORIZED" || message === "WORKSPACE_FORBIDDEN") return message;
@@ -87,7 +100,7 @@ export async function POST(request: Request) {
     });
   } catch (error) {
     const safeCode = safeFailureCode(error, stage);
-    console.error("[telegram-start]", { stage, code: safeCode });
+    console.error("[telegram-start]", { stage, code: safeCode, details: stage === "send_code" ? safeTelegramErrorDetails(error) : undefined });
     const status = safeCode === "UNAUTHORIZED" ? 401
       : safeCode === "WORKSPACE_FORBIDDEN" ? 403
       : safeCode === "TELEGRAM_RATE_LIMITED" ? 429
