@@ -23,12 +23,13 @@ function safeErrorCode(error: unknown) {
   if (/FLOOD_WAIT|FLOOD_PREMIUM_WAIT/i.test(message)) return "TELEGRAM_RATE_LIMITED";
   if (/USERNAME_NOT_OCCUPIED|CHANNEL_INVALID|CHANNEL_PRIVATE/i.test(message)) return "TELEGRAM_CHANNEL_UNAVAILABLE";
   if (/AUTH_KEY_UNREGISTERED|SESSION_REVOKED|USER_DEACTIVATED/i.test(message)) return "TELEGRAM_SESSION_EXPIRED";
+  if (/^(CHANNEL_|TELEGRAM_)[A-Z0-9_]{3,80}$/.test(message)) return message;
   return "TELEGRAM_COLLECTION_FAILED";
 }
 
 export async function collectTelegramChannel(admin: any, workspaceId: string, channelId: string) {
   const { data: channel, error: channelError } = await admin.from("telegram_channels")
-    .select("id,workspace_id,username,title,public_url,status,country_code,city_id,last_synced_message_id,history_cursor_message_id,initial_history_complete")
+    .select("id,workspace_id,username,title,public_url,status,country_code,city_id,last_synced_message_id,history_cursor_message_id,initial_history_latest_message_id,initial_history_complete")
     .eq("id", channelId).eq("workspace_id", workspaceId).maybeSingle();
   if (channelError || !channel) throw new Error("CHANNEL_NOT_FOUND");
   if (channel.status !== "approved" || !channel.username) throw new Error("CHANNEL_NOT_APPROVED");
@@ -59,6 +60,10 @@ export async function collectTelegramChannel(admin: any, workspaceId: string, ch
 
   let runId: string | null = null;
   try {
+    await admin.from("telegram_channels").update({
+      last_collection_attempt_at: new Date().toISOString(),
+      last_collection_status: "running",
+    }).eq("id", channelId).eq("workspace_id", workspaceId);
     await client.connect();
     if (!(await client.isUserAuthorized())) throw new Error("TELEGRAM_SESSION_EXPIRED");
 
@@ -186,6 +191,9 @@ export async function collectTelegramChannel(admin: any, workspaceId: string, ch
       lastMessageId: newestId || null,
     };
   } catch (error) {
+    await admin.from("telegram_channels").update({
+      last_collection_status: "failed",
+    }).eq("id", channelId).eq("workspace_id", workspaceId);
     if (runId) {
       await admin.from("collection_runs").update({
         status: "failed",
