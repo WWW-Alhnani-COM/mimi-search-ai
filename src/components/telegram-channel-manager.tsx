@@ -31,7 +31,7 @@ const statusStyles: Record<string, string> = {
 const initialSettings: Settings = {
   discovery_enabled: false, schedule_interval: "daily", auto_approve_enabled: false,
   minimum_approval_score: 85, default_history_days: 10,
-  ai_enabled: false, ai_provider: "local", ai_model: "gemini-2.5-flash-lite", ai_daily_request_limit: 50,
+  ai_enabled: false, ai_provider: "local", ai_model: "gemini-3.5-flash-lite", ai_daily_request_limit: 50,
 };
 
 export function TelegramChannelManager({ workspaces, countries }: { workspaces: Workspace[]; countries: Country[] }) {
@@ -401,8 +401,7 @@ export function TelegramChannelManager({ workspaces, countries }: { workspaces: 
           </label>
           <label className="block text-sm font-semibold">النموذج
             <select value={settings.ai_model} onChange={(event) => setSettings((value) => ({ ...value, ai_model: event.target.value }))} className="mt-2 w-full rounded-xl border border-border bg-background px-3 py-3">
-              <option value="gemini-2.5-flash-lite">Gemini 2.5 Flash-Lite</option>
-              <option value="gemini-2.5-flash">Gemini 2.5 Flash</option>
+              <option value="gemini-3.5-flash-lite">Gemini 3.5 Flash-Lite</option>
             </select>
           </label>
           <label className="block text-sm font-semibold">الحد اليومي لطلبات الذكاء الاصطناعي: {settings.ai_daily_request_limit}
