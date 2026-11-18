@@ -101,7 +101,7 @@ export async function enhanceTelegramLeadWithGemini(
         method: "POST",
         headers: { "Content-Type": "application/json", "x-goog-api-key": apiKey },
         cache: "no-store",
-        signal: AbortSignal.timeout(12000),
+        signal: AbortSignal.timeout(7000),
         body: JSON.stringify({
           contents: [{ role: "user", parts: [{ text: prompt }] }],
           generationConfig: {
