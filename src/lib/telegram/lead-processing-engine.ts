@@ -161,7 +161,8 @@ export async function processTelegramSourceItem(admin: SupabaseClient, workspace
   const relevanceReason = [
     category,
     ...scoring.reasons,
-    ...(item.language_code ? [`لغة المنشور: ${item.language_code}`] : []),\n    ...(positiveMatches.length ? [`مطابقة كلمات مفتاحية: ${positiveMatches.map((item) => item.term).slice(0, 5).join("، ")}`] : []),
+    ...(item.language_code ? [`لغة المنشور: ${item.language_code}`] : []),
+    ...(positiveMatches.length ? [`مطابقة كلمات مفتاحية: ${positiveMatches.map((item) => item.term).slice(0, 5).join("، ")}`] : []),
   ].join(" ");
 
   const { error: evidenceError } = await admin.from("lead_evidence").upsert({
