@@ -14,7 +14,8 @@ type Channel = {
 };
 type Rule = { id: string; rule_type: "include" | "exclude"; match_type: string; rule_value: string; country_code: string | null; enabled: boolean; priority: number };
 type Settings = { discovery_enabled: boolean; schedule_interval: string; auto_approve_enabled: boolean; minimum_approval_score: number; default_history_days: number; ai_enabled: boolean; ai_provider: "local" | "gemini"; ai_model: string; ai_daily_request_limit: number };
-type City = { id: string; country_code: string; name_ar: string };\ntype WorkerTask = { id: string; task_type: string; status: string; attempts: number; last_error: string | null; created_at: string; finished_at: string | null };
+type City = { id: string; country_code: string; name_ar: string };
+type WorkerTask = { id: string; task_type: string; status: string; attempts: number; last_error: string | null; created_at: string; finished_at: string | null };
 
 const statusLabels: Record<string, string> = {
   candidate: "مرشحة", review: "قيد المراجعة", approved: "معتمدة",
@@ -41,7 +42,9 @@ export function TelegramChannelManager({ workspaces, countries }: { workspaces: 
   const [sources, setSources] = useState<DiscoverySource[]>([]);
   const [rules, setRules] = useState<Rule[]>([]);
   const [cities, setCities] = useState<City[]>([]);
-  const [aiUsage, setAiUsage] = useState({ requests: 0, input_tokens: 0, output_tokens: 0 });\n  const [workerTasks, setWorkerTasks] = useState<WorkerTask[]>([]);\n  const [discoveryUsage, setDiscoveryUsage] = useState(0);
+  const [aiUsage, setAiUsage] = useState({ requests: 0, input_tokens: 0, output_tokens: 0 });
+  const [workerTasks, setWorkerTasks] = useState<WorkerTask[]>([]);
+  const [discoveryUsage, setDiscoveryUsage] = useState(0);
   const [settings, setSettings] = useState<Settings>(initialSettings);
   const [tab, setTab] = useState<"channels" | "rules" | "settings">("channels");
   const [statusFilter, setStatusFilter] = useState("all");
@@ -71,12 +74,14 @@ export function TelegramChannelManager({ workspaces, countries }: { workspaces: 
       supabase.from("telegram_channel_rules").select("id,rule_type,match_type,rule_value,country_code,enabled,priority").eq("workspace_id", workspaceId).order("priority"),
       supabase.from("telegram_discovery_settings").select("discovery_enabled,schedule_interval,auto_approve_enabled,minimum_approval_score,default_history_days,ai_enabled,ai_provider,ai_model,ai_daily_request_limit").eq("workspace_id", workspaceId).maybeSingle(),
       supabase.from("cities").select("id,country_code,name_ar").order("name_ar"),
-      supabase.from("telegram_channel_discovery_sources").select("channel_id,source_kind,source_url,search_query,discovered_at").eq("workspace_id", workspaceId).order("discovered_at", { ascending: false }),\n      supabase.from("telegram_worker_tasks").select("id,task_type,status,attempts,last_error,created_at,finished_at").eq("workspace_id", workspaceId).order("created_at", { ascending: false }).limit(8),
+      supabase.from("telegram_channel_discovery_sources").select("channel_id,source_kind,source_url,search_query,discovered_at").eq("workspace_id", workspaceId).order("discovered_at", { ascending: false }),
+      supabase.from("telegram_worker_tasks").select("id,task_type,status,attempts,last_error,created_at,finished_at").eq("workspace_id", workspaceId).order("created_at", { ascending: false }).limit(8),
     ]);
-    const firstError = channelResult.error ?? ruleResult.error ?? settingsResult.error ?? cityResult.error ?? sourceResult.error;
+    const firstError = channelResult.error ?? ruleResult.error ?? settingsResult.error ?? cityResult.error ?? sourceResult.error ?? taskResult.error;
     if (firstError) setError("تعذر تحميل بيانات إدارة القنوات. تحقق من تطبيق ترحيل قاعدة البيانات وصلاحيات مساحة العمل.");
     setChannels((channelResult.data ?? []) as Channel[]);
-    setSources((sourceResult.data ?? []) as DiscoverySource[]);\n    setWorkerTasks((taskResult.data ?? []) as WorkerTask[]);
+    setSources((sourceResult.data ?? []) as DiscoverySource[]);
+    setWorkerTasks((taskResult.data ?? []) as WorkerTask[]);
     setRules((ruleResult.data ?? []) as Rule[]);
     setSettings(settingsResult.data ? { ...initialSettings, ...settingsResult.data } : initialSettings);
     setCities((cityResult.data ?? []) as City[]);
@@ -331,7 +336,9 @@ export function TelegramChannelManager({ workspaces, countries }: { workspaces: 
             <div className="mt-3 flex flex-wrap items-center justify-between gap-3 border-t border-border pt-3">
               <div className="text-xs text-slate-400">{channel.country_code ?? "دون تحديد دولة"} · {channel.evaluation_score === null ? "لم تُقيّم بعد" : `التقييم ${channel.evaluation_score}/100`}</div>
               <div className="flex flex-wrap gap-2">
-                {channel.public_url && <a href={channel.public_url} target="_blank" rel="noreferrer" className="rounded-lg border border-border px-3 py-2 text-xs font-semibold">فتح القناة</a>}\n                {canManage && channel.status === "approved" && <button type="button" disabled={Boolean(collectingChannelId) || saving} onClick={() => void startCollection(channel)} className="rounded-lg border border-primary px-3 py-2 text-xs font-semibold text-primary disabled:opacity-50">{collectingChannelId === channel.id ? "جارٍ الإرسال…" : "جمع المنشورات"}</button>}\n                {canManage && channel.status === "approved" && <button type="button" disabled={saving} onClick={() => void toggleScheduledCollection(channel)} className="rounded-lg border border-border px-3 py-2 text-xs font-semibold disabled:opacity-50">{channel.collection_enabled ? "إيقاف الجمع الدوري" : "تفعيل الجمع الدوري"}</button>}
+                {channel.public_url && <a href={channel.public_url} target="_blank" rel="noreferrer" className="rounded-lg border border-border px-3 py-2 text-xs font-semibold">فتح القناة</a>}
+                {canManage && channel.status === "approved" && <button type="button" disabled={Boolean(collectingChannelId) || saving} onClick={() => void startCollection(channel)} className="rounded-lg border border-primary px-3 py-2 text-xs font-semibold text-primary disabled:opacity-50">{collectingChannelId === channel.id ? "جارٍ الإرسال…" : "جمع المنشورات"}</button>}
+                {canManage && channel.status === "approved" && <button type="button" disabled={saving} onClick={() => void toggleScheduledCollection(channel)} className="rounded-lg border border-border px-3 py-2 text-xs font-semibold disabled:opacity-50">{channel.collection_enabled ? "إيقاف الجمع الدوري" : "تفعيل الجمع الدوري"}</button>}
                 {canManage && channel.status !== "approved" && <button type="button" disabled={saving} onClick={() => void changeStatus(channel, "approved")} className="inline-flex items-center gap-1 rounded-lg bg-emerald-600 px-3 py-2 text-xs font-bold text-white disabled:opacity-50"><Check size={14}/>اعتماد</button>}
                 {canManage && channel.status !== "rejected" && <button type="button" disabled={saving} onClick={() => void changeStatus(channel, "rejected")} className="rounded-lg border border-rose-300 px-3 py-2 text-xs font-semibold text-rose-700 disabled:opacity-50">رفض</button>}
                 {canManage && channel.status !== "paused" && channel.status !== "archived" && <button type="button" disabled={saving} onClick={() => void changeStatus(channel, "paused")} title="إيقاف" className="rounded-lg border border-border p-2 text-slate-500 disabled:opacity-50"><CirclePause size={15}/></button>}
