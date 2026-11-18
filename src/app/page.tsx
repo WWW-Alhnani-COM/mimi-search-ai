@@ -32,7 +32,8 @@ export default async function Home() {
           {futureModules.map(({ label, icon: Icon }) => <div key={label} aria-disabled="true" className="flex cursor-not-allowed items-center gap-3 rounded-xl px-3 py-3 text-sm text-slate-400"><Icon size={18}/>{label}<span className="mr-auto text-[10px]">قريباً</span></div>)}
         </nav>
         <div className="mt-8 border-t border-border pt-5">
-          <Link href="/telegram/channels" className="flex items-center gap-3 rounded-xl px-3 py-3 text-sm font-semibold hover:bg-primary/10 hover:text-primary"><Send size={18}/>إدارة قنوات Telegram</Link>\n          <Link href="/settings/connections/telegram" className="flex items-center gap-3 rounded-xl px-3 py-3 text-sm font-semibold hover:bg-primary/10 hover:text-primary"><Settings2 size={18}/>مصادر البيانات · Telegram</Link>
+          <Link href="/telegram/channels" className="flex items-center gap-3 rounded-xl px-3 py-3 text-sm font-semibold hover:bg-primary/10 hover:text-primary"><Send size={18}/>إدارة قنوات Telegram</Link>
+          <Link href="/settings/connections/telegram" className="flex items-center gap-3 rounded-xl px-3 py-3 text-sm font-semibold hover:bg-primary/10 hover:text-primary"><Settings2 size={18}/>مصادر البيانات · Telegram</Link>
           <div className="flex items-center gap-3 rounded-xl px-3 py-3 text-sm text-slate-400"><CircleHelp size={18}/>المساعدة · قريباً</div>
         </div>
         <div className="mt-10 rounded-2xl bg-slate-950 p-4 text-white">
