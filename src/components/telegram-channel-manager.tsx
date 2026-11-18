@@ -14,7 +14,7 @@ type Channel = {
 };
 type Rule = { id: string; rule_type: "include" | "exclude"; match_type: string; rule_value: string; country_code: string | null; enabled: boolean; priority: number };
 type Settings = { discovery_enabled: boolean; schedule_interval: string; auto_approve_enabled: boolean; minimum_approval_score: number; default_history_days: number; ai_enabled: boolean; ai_provider: "local" | "gemini"; ai_model: string; ai_daily_request_limit: number };
-type City = { id: string; country_code: string; name_ar: string };
+type City = { id: string; country_code: string; name_ar: string };\ntype WorkerTask = { id: string; task_type: string; status: string; attempts: number; last_error: string | null; created_at: string; finished_at: string | null };
 
 const statusLabels: Record<string, string> = {
   candidate: "مرشحة", review: "قيد المراجعة", approved: "معتمدة",
@@ -41,7 +41,7 @@ export function TelegramChannelManager({ workspaces, countries }: { workspaces: 
   const [sources, setSources] = useState<DiscoverySource[]>([]);
   const [rules, setRules] = useState<Rule[]>([]);
   const [cities, setCities] = useState<City[]>([]);
-  const [aiUsage, setAiUsage] = useState({ requests: 0, input_tokens: 0, output_tokens: 0 });
+  const [aiUsage, setAiUsage] = useState({ requests: 0, input_tokens: 0, output_tokens: 0 });\n  const [workerTasks, setWorkerTasks] = useState<WorkerTask[]>([]);\n  const [discoveryUsage, setDiscoveryUsage] = useState(0);
   const [settings, setSettings] = useState<Settings>(initialSettings);
   const [tab, setTab] = useState<"channels" | "rules" | "settings">("channels");
   const [statusFilter, setStatusFilter] = useState("all");
@@ -66,20 +66,24 @@ export function TelegramChannelManager({ workspaces, countries }: { workspaces: 
   const load = useCallback(async () => {
     if (!workspaceId) return;
     setLoading(true); setError("");
-    const [channelResult, ruleResult, settingsResult, cityResult, sourceResult] = await Promise.all([
+    const [channelResult, ruleResult, settingsResult, cityResult, sourceResult, taskResult] = await Promise.all([
       supabase.from("telegram_channels").select("id,workspace_id,username,title,about,public_url,status,country_code,city_id,category,discovery_method,evaluation_score,collection_enabled,created_at").eq("workspace_id", workspaceId).order("created_at", { ascending: false }),
       supabase.from("telegram_channel_rules").select("id,rule_type,match_type,rule_value,country_code,enabled,priority").eq("workspace_id", workspaceId).order("priority"),
       supabase.from("telegram_discovery_settings").select("discovery_enabled,schedule_interval,auto_approve_enabled,minimum_approval_score,default_history_days,ai_enabled,ai_provider,ai_model,ai_daily_request_limit").eq("workspace_id", workspaceId).maybeSingle(),
       supabase.from("cities").select("id,country_code,name_ar").order("name_ar"),
-      supabase.from("telegram_channel_discovery_sources").select("channel_id,source_kind,source_url,search_query,discovered_at").eq("workspace_id", workspaceId).order("discovered_at", { ascending: false }),
+      supabase.from("telegram_channel_discovery_sources").select("channel_id,source_kind,source_url,search_query,discovered_at").eq("workspace_id", workspaceId).order("discovered_at", { ascending: false }),\n      supabase.from("telegram_worker_tasks").select("id,task_type,status,attempts,last_error,created_at,finished_at").eq("workspace_id", workspaceId).order("created_at", { ascending: false }).limit(8),
     ]);
     const firstError = channelResult.error ?? ruleResult.error ?? settingsResult.error ?? cityResult.error ?? sourceResult.error;
     if (firstError) setError("تعذر تحميل بيانات إدارة القنوات. تحقق من تطبيق ترحيل قاعدة البيانات وصلاحيات مساحة العمل.");
     setChannels((channelResult.data ?? []) as Channel[]);
-    setSources((sourceResult.data ?? []) as DiscoverySource[]);
+    setSources((sourceResult.data ?? []) as DiscoverySource[]);\n    setWorkerTasks((taskResult.data ?? []) as WorkerTask[]);
     setRules((ruleResult.data ?? []) as Rule[]);
     setSettings(settingsResult.data ? { ...initialSettings, ...settingsResult.data } : initialSettings);
     setCities((cityResult.data ?? []) as City[]);
+    const monthStart = new Date(Date.UTC(new Date().getUTCFullYear(), new Date().getUTCMonth(), 1)).toISOString().slice(0, 10);
+    const { data: searchUsage } = await supabase.from("telegram_discovery_provider_usage")
+      .select("requests").eq("provider", "tavily").eq("usage_month", monthStart).maybeSingle();
+    setDiscoveryUsage(Number(searchUsage?.requests ?? 0));
     const usageDate = new Date().toISOString().slice(0, 10);
     const { data: usage } = await supabase.from("telegram_ai_usage")
       .select("requests,input_tokens,output_tokens").eq("workspace_id", workspaceId).eq("usage_date", usageDate).maybeSingle();
@@ -294,6 +298,20 @@ export function TelegramChannelManager({ workspaces, countries }: { workspaces: 
     {error && <p role="alert" className="rounded-xl border border-rose-300 bg-rose-50 p-3 text-sm text-rose-800 dark:border-rose-900 dark:bg-rose-950 dark:text-rose-200">{error}</p>}
     {message && <p role="status" className="rounded-xl border border-emerald-300 bg-emerald-50 p-3 text-sm text-emerald-800 dark:border-emerald-900 dark:bg-emerald-950 dark:text-emerald-200">{message}</p>}
     {loading && <div className="flex items-center gap-2 text-sm text-slate-500"><LoaderCircle size={17} className="animate-spin"/>جارٍ تحميل بيانات مساحة العمل…</div>}
+
+    {tab === "channels" && <section className="rounded-2xl border border-border bg-card p-4 md:p-5">
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <h2 className="font-extrabold">حالة محرك المهام</h2>
+        <span className="text-xs text-slate-500">Tavily: {discoveryUsage}/900 طلباً هذا الشهر</span>
+      </div>
+      {workerTasks.length === 0 ? <p className="mt-3 text-sm text-slate-500">لا توجد مهام مسجلة حتى الآن.</p> : <div className="mt-3 space-y-2">
+        {workerTasks.map((task) => <div key={task.id} className="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-border p-3 text-xs">
+          <div><span className="font-bold">{({discover_channels:"اكتشاف قنوات",verify_channel:"التحقق من قناة",collect_channel:"جمع منشورات",process_source_item:"تحليل منشور"} as Record<string,string>)[task.task_type] ?? task.task_type}</span><span className="mx-2 text-slate-400">·</span><span className="text-slate-500">{new Date(task.created_at).toLocaleString("ar")}</span>{task.last_error && <p className="mt-1 text-rose-600">{task.last_error}</p>}</div>
+          <span className={task.status === "completed" ? "text-emerald-600" : task.status === "failed" ? "text-rose-600" : "text-slate-500"}>{({queued:"في الانتظار",running:"قيد التنفيذ",completed:"مكتملة",partial:"جزئية",failed:"فشلت",cancelled:"ملغاة"} as Record<string,string>)[task.status] ?? task.status} · {task.attempts} محاولات</span>
+        </div>)}
+      </div>
+      <p className="mt-3 text-[11px] leading-5 text-slate-500">الرقم المعروض هو استهلاك Mimi Search AI من الحد الداخلي الشهري، وليس قراءة مباشرة من لوحة Tavily.</p>
+    </section>}
 
     {tab === "channels" && <div className="grid gap-5 xl:grid-cols-[minmax(0,1fr)_360px]">
       <section className="min-w-0 rounded-2xl border border-border bg-card p-4 md:p-5">
