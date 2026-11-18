@@ -53,7 +53,6 @@ async function tavilySearch(query: string, countryCode: string | null) {
       search_depth: "basic",
       max_results: RESULTS_PER_QUERY,
       include_domains: ["t.me"],
-      ...(countryCode ? { country: countryCode.toLowerCase() } : {}),
       include_answer: false,
       include_raw_content: false,
     }),
@@ -76,6 +75,7 @@ export async function discoverTelegramChannels(
   if (process.env.TELEGRAM_DISCOVERY_SEARCH_ENABLED !== "true") {
     throw new Error("DISCOVERY_SEARCH_DISABLED");
   }
+  if (!process.env.TAVILY_API_KEY) throw new Error("DISCOVERY_PROVIDER_NOT_CONFIGURED");
   if (process.env.TAVILY_FREE_PLAN_ONLY_CONFIRMED !== "true") {
     throw new Error("DISCOVERY_FREE_PLAN_GUARD_NOT_CONFIRMED");
   }
@@ -99,7 +99,7 @@ export async function discoverTelegramChannels(
   let searches = 0;
 
   for (const rule of includeRules) {
-    const query = `site:t.me ${rule.rule_value} Telegram channel`;
+    const query = `site:t.me ${rule.rule_value} ${rule.country_code ?? ""} Telegram channel`;
     const { data: quotaAllowed, error: quotaError } = await admin.rpc("claim_telegram_discovery_credit", { p_monthly_limit: 900 });
     if (quotaError) throw new Error("DISCOVERY_QUOTA_RESERVATION_FAILED");
     if (quotaAllowed !== true) throw new Error("DISCOVERY_MONTHLY_FREE_LIMIT_REACHED");
@@ -114,6 +114,7 @@ export async function discoverTelegramChannels(
 
       const evidenceText = `${title} ${snippet}`;
       if (excludeRules.some((excludeRule) => matchesRule(evidenceText, excludeRule))) continue;
+      if (!matchesRule(evidenceText, rule)) continue;
 
       const score = Math.min(100, 50 + (title ? 15 : 0) + (snippet ? 15 : 0) + (rule.country_code ? 5 : 0));
       const key = channel.username.toLowerCase();
