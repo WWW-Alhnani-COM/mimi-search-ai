@@ -17,7 +17,7 @@ export default async function TelegramChannelsPage() {
     .eq("user_id", user.id);
 
   const workspaceIds = (memberships ?? []).map((item) => item.workspace_id);
-  const canManageByWorkspace = new Map((memberships ?? []).map((item) => [item.workspace_id, ["owner", "admin", "member"].includes(item.role)]));
+  const canManageByWorkspace = new Map((memberships ?? []).map((item) => [item.workspace_id, ["owner", "admin", "member"].includes(item.role)] as const));
   const [{ data: workspaces }, { data: countries }] = await Promise.all([
     workspaceIds.length
       ? supabase.from("workspaces").select("id,name").in("id", workspaceIds).order("created_at", { ascending: true })
