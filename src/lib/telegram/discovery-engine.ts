@@ -56,7 +56,7 @@ async function tavilySearch(query: string) {
       include_answer: false,
       include_raw_content: false,
     }),
-    signal: AbortSignal.timeout(12000),
+    signal: AbortSignal.timeout(7000),
     cache: "no-store",
   });
   const data = await response.json().catch(() => ({})) as SearchResponse;
