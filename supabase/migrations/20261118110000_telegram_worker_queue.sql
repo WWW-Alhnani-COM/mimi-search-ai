@@ -138,3 +138,90 @@ create unique index if not exists telegram_channel_sources_deduplicate_idx
 create unique index if not exists telegram_worker_tasks_one_active_source_item_idx
   on public.telegram_worker_tasks(workspace_id, (payload->>'sourceItemId'))
   where status in ('queued','running') and task_type = 'process_source_item';
+
+-- Optional AI enhancement with a strict, workspace-level daily request budget.
+alter table public.telegram_discovery_settings
+  add column if not exists ai_enabled boolean not null default false,
+  add column if not exists ai_provider text not null default 'local'
+    check (ai_provider in ('local','gemini')),
+  add column if not exists ai_model text not null default 'gemini-2.5-flash-lite'
+    check (ai_model in ('gemini-2.5-flash-lite','gemini-2.5-flash')),
+  add column if not exists ai_daily_request_limit integer not null default 50
+    check (ai_daily_request_limit between 1 and 100);
+
+create table if not exists public.telegram_ai_usage (
+  workspace_id uuid not null references public.workspaces(id) on delete cascade,
+  usage_date date not null default (now() at time zone 'utc')::date,
+  requests integer not null default 0 check (requests >= 0),
+  input_tokens bigint not null default 0 check (input_tokens >= 0),
+  output_tokens bigint not null default 0 check (output_tokens >= 0),
+  updated_at timestamptz not null default now(),
+  primary key (workspace_id, usage_date)
+);
+alter table public.telegram_ai_usage enable row level security;
+drop policy if exists telegram_ai_usage_workspace_select on public.telegram_ai_usage;
+create policy telegram_ai_usage_workspace_select
+  on public.telegram_ai_usage for select to authenticated
+  using (private.is_workspace_member(workspace_id));
+grant select on public.telegram_ai_usage to authenticated;
+grant all privileges on public.telegram_ai_usage to service_role;
+
+create or replace function public.claim_telegram_ai_request(
+  p_workspace_id uuid,
+  p_daily_limit integer
+)
+returns boolean
+language plpgsql
+security definer
+set search_path to ''
+as $function$
+declare claimed boolean := false;
+begin
+  if coalesce(auth.jwt()->>'role','') <> 'service_role' then
+    raise exception 'forbidden';
+  end if;
+  if p_daily_limit is null or p_daily_limit < 1 or p_daily_limit > 100 then
+    raise exception 'invalid_daily_limit';
+  end if;
+
+  insert into public.telegram_ai_usage(workspace_id, usage_date)
+  values (p_workspace_id, (now() at time zone 'utc')::date)
+  on conflict (workspace_id, usage_date) do nothing;
+
+  update public.telegram_ai_usage
+  set requests = requests + 1, updated_at = now()
+  where workspace_id = p_workspace_id
+    and usage_date = (now() at time zone 'utc')::date
+    and requests < p_daily_limit;
+  claimed := found;
+  return claimed;
+end;
+$function$;
+
+create or replace function public.record_telegram_ai_usage(
+  p_workspace_id uuid,
+  p_input_tokens bigint default 0,
+  p_output_tokens bigint default 0
+)
+returns void
+language plpgsql
+security definer
+set search_path to ''
+as $function$
+begin
+  if coalesce(auth.jwt()->>'role','') <> 'service_role' then
+    raise exception 'forbidden';
+  end if;
+  update public.telegram_ai_usage
+  set input_tokens = input_tokens + greatest(coalesce(p_input_tokens,0),0),
+      output_tokens = output_tokens + greatest(coalesce(p_output_tokens,0),0),
+      updated_at = now()
+  where workspace_id = p_workspace_id
+    and usage_date = (now() at time zone 'utc')::date;
+end;
+$function$;
+
+revoke all on function public.claim_telegram_ai_request(uuid,integer) from public,anon,authenticated;
+grant execute on function public.claim_telegram_ai_request(uuid,integer) to service_role;
+revoke all on function public.record_telegram_ai_usage(uuid,bigint,bigint) from public,anon,authenticated;
+grant execute on function public.record_telegram_ai_usage(uuid,bigint,bigint) to service_role;
