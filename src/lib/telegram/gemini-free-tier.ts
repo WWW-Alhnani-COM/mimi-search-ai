@@ -1,6 +1,6 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 
-const ALLOWED_MODELS = new Set(["gemini-2.5-flash-lite", "gemini-2.5-flash"]);
+const ALLOWED_MODELS = new Set(["gemini-3.5-flash-lite"]);
 const CATEGORIES = new Set([
   "Service Request", "Product Request", "Supplier Offer", "Business Opportunity",
   "Tender", "Hiring", "Buyer Intent", "Advertisement", "General Discussion", "Irrelevant",
@@ -71,7 +71,7 @@ export async function enhanceTelegramLeadWithGemini(
   }
 
   const apiKey = process.env.GEMINI_API_KEY;
-  const model = String(settings.ai_model ?? "gemini-2.5-flash-lite");
+  const model = String(settings.ai_model ?? "gemini-3.5-flash-lite");
   if (!apiKey || !ALLOWED_MODELS.has(model)) return { used: false, reason: "GEMINI_NOT_CONFIGURED" };
 
   const { data: reserved, error: reserveError } = await admin.rpc("claim_telegram_ai_request", {
@@ -105,7 +105,6 @@ export async function enhanceTelegramLeadWithGemini(
         body: JSON.stringify({
           contents: [{ role: "user", parts: [{ text: prompt }] }],
           generationConfig: {
-            temperature: 0.1,
             maxOutputTokens: 512,
             responseMimeType: "application/json",
           },
