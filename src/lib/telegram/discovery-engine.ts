@@ -135,27 +135,34 @@ export async function discoverTelegramChannels(
 
   for (const candidate of discovered.values()) {
     const { data: existing, error: lookupError } = await admin.from("telegram_channels")
-      .select("id,status").eq("workspace_id", workspaceId)
+      .select("id,status,discovery_method").eq("workspace_id", workspaceId)
       .ilike("username", candidate.username).maybeSingle();
     if (lookupError) { errors.push("CHANNEL_LOOKUP_FAILED"); skipped += 1; continue; }
 
     let channelId = existing?.id as string | undefined;
     if (channelId) {
       alreadyKnown += 1;
+      if (existing?.status === "candidate" && existing?.discovery_method === "search_engine") {
+        const { error: verificationQueueError } = await admin.from("telegram_worker_tasks").insert({
+          workspace_id: workspaceId,
+          task_type: "verify_channel",
+          status: "queued",
+          payload: { channelId, verificationSource: "discovery_refresh" },
+        });
+        if (verificationQueueError && verificationQueueError.code !== "23505") errors.push("CHANNEL_VERIFICATION_QUEUE_FAILED");
+      }
       await admin.from("telegram_channels").update({
         last_discovered_at: new Date().toISOString(),
       }).eq("id", channelId).eq("workspace_id", workspaceId);
     } else {
-      const canAutoApprove = Boolean(settings?.auto_approve_enabled)
-        && candidate.score >= Number(settings?.minimum_approval_score ?? 85);
       const { data: created, error: insertError } = await admin.from("telegram_channels").insert({
         workspace_id: workspaceId,
         username: candidate.username,
         title: candidate.title || null,
         about: candidate.snippet || null,
         public_url: candidate.publicUrl,
-        status: canAutoApprove ? "approved" : "candidate",
-        approved_at: canAutoApprove ? new Date().toISOString() : null,
+        status: "candidate",
+        approved_at: null,
         discovery_method: "search_engine",
         country_code: candidate.countryCode,
         evaluation_score: candidate.score,
