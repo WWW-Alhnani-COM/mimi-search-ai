@@ -27,7 +27,7 @@ The repository is being initialized. The first milestone is the secure applicati
 1. Install Node.js LTS.
 2. Install dependencies: `npm install`.
 3. Copy `.env.example` to `.env.local`.
-4. Add your Supabase project URL and anon key.
+4. Add your Supabase project URL and publishable key.
 5. Run `npm run dev`.
 
 ## Environment variables
@@ -51,14 +51,14 @@ All rights reserved unless a license is added by the repository owner.
 
 1. Create a Supabase project.
 2. Open the SQL Editor and run `supabase/schema.sql`.
-3. Copy the project URL and anon/public key into `.env.local`.
+3. Copy the project URL and publishable key into `.env.local`.
 4. In Supabase Authentication, configure the site URL and redirect URLs for local development and the deployed domain.
 5. Enable email/password authentication and configure email confirmation as required.
 
 ## Deployment on Vercel
 
 1. Import this GitHub repository into Vercel.
-2. Add `NEXT_PUBLIC_SUPABASE_URL` and `NEXT_PUBLIC_SUPABASE_ANON_KEY` to the project environment.
+2. Add `NEXT_PUBLIC_SUPABASE_URL` and `NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY` to the project environment.
 3. Deploy the `main` branch.
 4. Add the deployed domain to Supabase Auth redirect URLs.
 
