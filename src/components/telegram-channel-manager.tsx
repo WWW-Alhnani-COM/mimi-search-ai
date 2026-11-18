@@ -13,7 +13,7 @@ type Channel = {
   category: string | null; discovery_method: string; evaluation_score: number | null; created_at: string;
 };
 type Rule = { id: string; rule_type: "include" | "exclude"; match_type: string; rule_value: string; country_code: string | null; enabled: boolean; priority: number };
-type Settings = { discovery_enabled: boolean; schedule_interval: string; auto_approve_enabled: boolean; minimum_approval_score: number; default_history_days: number };
+type Settings = { discovery_enabled: boolean; schedule_interval: string; auto_approve_enabled: boolean; minimum_approval_score: number; default_history_days: number; ai_enabled: boolean; ai_provider: "local" | "gemini"; ai_model: string; ai_daily_request_limit: number };
 type City = { id: string; country_code: string; name_ar: string };
 
 const statusLabels: Record<string, string> = {
@@ -31,6 +31,7 @@ const statusStyles: Record<string, string> = {
 const initialSettings: Settings = {
   discovery_enabled: false, schedule_interval: "daily", auto_approve_enabled: false,
   minimum_approval_score: 85, default_history_days: 10,
+  ai_enabled: false, ai_provider: "local", ai_model: "gemini-2.5-flash-lite", ai_daily_request_limit: 50,
 };
 
 export function TelegramChannelManager({ workspaces, countries }: { workspaces: Workspace[]; countries: Country[] }) {
@@ -40,6 +41,7 @@ export function TelegramChannelManager({ workspaces, countries }: { workspaces: 
   const [sources, setSources] = useState<DiscoverySource[]>([]);
   const [rules, setRules] = useState<Rule[]>([]);
   const [cities, setCities] = useState<City[]>([]);
+  const [aiUsage, setAiUsage] = useState({ requests: 0, input_tokens: 0, output_tokens: 0 });
   const [settings, setSettings] = useState<Settings>(initialSettings);
   const [tab, setTab] = useState<"channels" | "rules" | "settings">("channels");
   const [statusFilter, setStatusFilter] = useState("all");
@@ -67,7 +69,7 @@ export function TelegramChannelManager({ workspaces, countries }: { workspaces: 
     const [channelResult, ruleResult, settingsResult, cityResult, sourceResult] = await Promise.all([
       supabase.from("telegram_channels").select("id,workspace_id,username,title,about,public_url,status,country_code,city_id,category,discovery_method,evaluation_score,created_at").eq("workspace_id", workspaceId).order("created_at", { ascending: false }),
       supabase.from("telegram_channel_rules").select("id,rule_type,match_type,rule_value,country_code,enabled,priority").eq("workspace_id", workspaceId).order("priority"),
-      supabase.from("telegram_discovery_settings").select("discovery_enabled,schedule_interval,auto_approve_enabled,minimum_approval_score,default_history_days").eq("workspace_id", workspaceId).maybeSingle(),
+      supabase.from("telegram_discovery_settings").select("discovery_enabled,schedule_interval,auto_approve_enabled,minimum_approval_score,default_history_days,ai_enabled,ai_provider,ai_model,ai_daily_request_limit").eq("workspace_id", workspaceId).maybeSingle(),
       supabase.from("cities").select("id,country_code,name_ar").order("name_ar"),
       supabase.from("telegram_channel_discovery_sources").select("channel_id,source_kind,source_url,search_query,discovered_at").eq("workspace_id", workspaceId).order("discovered_at", { ascending: false }),
     ]);
@@ -78,6 +80,10 @@ export function TelegramChannelManager({ workspaces, countries }: { workspaces: 
     setRules((ruleResult.data ?? []) as Rule[]);
     setSettings(settingsResult.data ? { ...initialSettings, ...settingsResult.data } : initialSettings);
     setCities((cityResult.data ?? []) as City[]);
+    const usageDate = new Date().toISOString().slice(0, 10);
+    const { data: usage } = await supabase.from("telegram_ai_usage")
+      .select("requests,input_tokens,output_tokens").eq("workspace_id", workspaceId).eq("usage_date", usageDate).maybeSingle();
+    setAiUsage(usage ?? { requests: 0, input_tokens: 0, output_tokens: 0 });
     setLoading(false);
   }, [supabase, workspaceId]);
 
@@ -365,6 +371,36 @@ export function TelegramChannelManager({ workspaces, countries }: { workspaces: 
         <label className="flex items-center justify-between gap-4 rounded-xl border border-border p-4"><span className="text-sm font-bold">الاعتماد التلقائي للقنوات المؤهلة</span><input type="checkbox" checked={settings.auto_approve_enabled} onChange={(event) => setSettings((value) => ({ ...value, auto_approve_enabled: event.target.checked }))} className="h-5 w-5 accent-blue-600"/></label>
         <label className="block text-sm font-semibold">الحد الأدنى لدرجة الاعتماد التلقائي: {settings.minimum_approval_score}/100<input type="range" min="0" max="100" step="5" value={settings.minimum_approval_score} onChange={(event) => setSettings((value) => ({ ...value, minimum_approval_score: Number(event.target.value) }))} className="mt-3 w-full accent-blue-600"/></label>
         <label className="block text-sm font-semibold">النطاق التاريخي الافتراضي للبحث<select value={settings.default_history_days} onChange={(event) => setSettings((value) => ({ ...value, default_history_days: Number(event.target.value) }))} className="mt-2 w-full rounded-xl border border-border bg-background px-3 py-3">{[1,3,7,10,15,30].map((days) => <option key={days} value={days}>آخر {days} {days === 1 ? "يوم" : "أيام"}</option>)}</select></label>
+        <div className="rounded-xl border border-border p-4 space-y-4">
+          <div>
+            <h3 className="font-bold">تحليل الذكاء الاصطناعي</h3>
+            <p className="mt-1 text-xs leading-5 text-slate-500">التحليل المحلي يظل الأساس. Gemini خيار إضافي ولا يعمل إلا عند تفعيل مفاتيح الحماية الخاصة بالمستوى المجاني.</p>
+          </div>
+          <label className="flex items-center justify-between gap-4 text-sm font-semibold">
+            تفعيل التحليل بالذكاء الاصطناعي
+            <input type="checkbox" checked={settings.ai_enabled} onChange={(event) => setSettings((value) => ({ ...value, ai_enabled: event.target.checked }))} className="h-5 w-5 accent-blue-600"/>
+          </label>
+          <label className="block text-sm font-semibold">المزود
+            <select value={settings.ai_provider} onChange={(event) => setSettings((value) => ({ ...value, ai_provider: event.target.value as "local" | "gemini" }))} className="mt-2 w-full rounded-xl border border-border bg-background px-3 py-3">
+              <option value="local">التحليل المحلي فقط</option>
+              <option value="gemini">Google Gemini – المستوى المجاني</option>
+            </select>
+          </label>
+          <label className="block text-sm font-semibold">النموذج
+            <select value={settings.ai_model} onChange={(event) => setSettings((value) => ({ ...value, ai_model: event.target.value }))} className="mt-2 w-full rounded-xl border border-border bg-background px-3 py-3">
+              <option value="gemini-2.5-flash-lite">Gemini 2.5 Flash-Lite</option>
+              <option value="gemini-2.5-flash">Gemini 2.5 Flash</option>
+            </select>
+          </label>
+          <label className="block text-sm font-semibold">الحد اليومي لطلبات الذكاء الاصطناعي: {settings.ai_daily_request_limit}
+            <input type="range" min="1" max="100" step="1" value={settings.ai_daily_request_limit} onChange={(event) => setSettings((value) => ({ ...value, ai_daily_request_limit: Number(event.target.value) }))} className="mt-3 w-full accent-blue-600"/>
+          </label>
+          <div className="rounded-lg bg-background p-3 text-xs leading-6 text-slate-500">
+            استهلاك اليوم: {aiUsage.requests}/{settings.ai_daily_request_limit} طلب · {aiUsage.input_tokens + aiUsage.output_tokens} رمز.
+            <br/>لا يوفر Gemini API رقماً موثوقاً للحصة المجانية المتبقية؛ المعروض هنا استهلاك Mimi Search AI فقط.
+          </div>
+          <p className="text-xs leading-5 text-amber-700 dark:text-amber-300">لمنع الفوترة: لن يرسل النظام طلباً إلا عند تعيين GEMINI_FREE_TIER_ONLY=true وGEMINI_BILLING_DISABLED_CONFIRMED=true واستخدام مشروع Google لا يحتوي على حساب فوترة. لا يتم استخدام Google Search Grounding أو أي نموذج غير مدرج في القائمة.</p>
+        </div>
         <button disabled={saving} className="w-full rounded-xl bg-primary px-4 py-3 font-bold text-white disabled:opacity-50">حفظ إعدادات مساحة العمل</button>
       </form> : <p className="rounded-xl border border-border p-4 text-sm text-slate-500">إعدادات مساحة العمل مشتركة، لكن حسابك يملك صلاحية القراءة فقط.</p>}
     </section>}
