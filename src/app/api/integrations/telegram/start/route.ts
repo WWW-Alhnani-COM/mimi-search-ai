@@ -33,7 +33,8 @@ function safeFailureCode(error: unknown, stage: string): string {
   if (/API_ID_INVALID|API_HASH_INVALID|API_ID_PUBLISHED_FLOOD/i.test(message)) return "TELEGRAM_API_CREDENTIALS_REJECTED";
   if (/FLOOD_WAIT|FLOOD_PREMIUM_WAIT/i.test(message)) return "TELEGRAM_RATE_LIMITED";
   if (/PHONE_NUMBER_BANNED|PHONE_NUMBER_FLOOD/i.test(message)) return "TELEGRAM_PHONE_RESTRICTED";
-  if (stage === "send_code") return "TELEGRAM_CODE_SEND_FAILED";
+  if (stage === "send_code" || stage === "send_code_retry") return "TELEGRAM_CODE_SEND_FAILED";
+  if (stage === "telegram_dc_migration") return "TELEGRAM_DC_MIGRATION_FAILED";
   if (stage === "persist_pending") return "TELEGRAM_PENDING_STATE_SAVE_FAILED";
   if (stage === "encrypt_pending") return "TELEGRAM_ENCRYPTION_FAILED";
   if (stage === "telegram_connect") return "TELEGRAM_NETWORK_CONNECT_FAILED";
@@ -124,7 +125,7 @@ export async function POST(request: Request) {
     });
   } catch (error) {
     const safeCode = safeFailureCode(error, stage);
-    console.error("[telegram-start]", { stage, code: safeCode, details: stage === "send_code" ? safeTelegramErrorDetails(error) : undefined });
+    console.error("[telegram-start]", { stage, code: safeCode, details: stage === "send_code" || stage === "send_code_retry" || stage === "telegram_dc_migration" ? safeTelegramErrorDetails(error) : undefined });
     const status = safeCode === "UNAUTHORIZED" ? 401
       : safeCode === "WORKSPACE_FORBIDDEN" ? 403
       : safeCode === "TELEGRAM_RATE_LIMITED" ? 429
