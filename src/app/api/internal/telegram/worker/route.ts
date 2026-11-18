@@ -6,7 +6,7 @@ import { collectTelegramChannel } from "@/lib/telegram/collection-engine";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
-export const maxDuration = 60;
+export const maxDuration = 10;
 
 function authorized(request: Request) {
   const expected = process.env.TELEGRAM_WORKER_SECRET ?? "";
@@ -24,7 +24,7 @@ export async function POST(request: Request) {
   const workerId = `vercel-${process.env.VERCEL_REGION ?? "node"}`;
   const { data: tasks, error: claimError } = await admin.rpc("claim_telegram_worker_tasks", {
     p_worker_id: workerId,
-    p_limit: 2,
+    p_limit: 1,
   });
 
   if (claimError) {
@@ -37,7 +37,8 @@ export async function POST(request: Request) {
     try {
       let result: Record<string, unknown>;
       if (task.task_type === "discover_channels") {
-        result = await discoverTelegramChannels(admin, task.workspace_id);
+        const ruleOffset = Number(task.payload?.ruleOffset ?? 0);
+        result = await discoverTelegramChannels(admin, task.workspace_id, Number.isInteger(ruleOffset) && ruleOffset >= 0 ? ruleOffset : 0);
       } else if (task.task_type === "collect_channel") {
         const channelId = typeof task.payload?.channelId === "string" ? task.payload.channelId : "";
         if (!channelId) throw new Error("CHANNEL_ID_MISSING");
@@ -55,16 +56,20 @@ export async function POST(request: Request) {
         updated_at: new Date().toISOString(),
       }).eq("id", task.id);
       if (updateError) throw new Error("TASK_COMPLETION_SAVE_FAILED");
-      if (result.hasMore === true && task.task_type === "collect_channel") {
-        const channelId = typeof task.payload?.channelId === "string" ? task.payload.channelId : "";
-        if (channelId) {
-          await admin.from("telegram_worker_tasks").insert({
-            workspace_id: task.workspace_id,
-            task_type: "collect_channel",
-            status: "queued",
-            payload: { channelId, continuationOf: task.id },
-            created_by: task.created_by ?? null,
-          });
+      if (result.hasMore === true) {
+        const continuationPayload = task.task_type === "collect_channel"
+          ? { channelId: task.payload?.channelId, continuationOf: task.id }
+          : { ruleOffset: Number(result.nextRuleOffset ?? 0), continuationOf: task.id };
+        const nextTaskType = task.task_type === "collect_channel" ? "collect_channel" : "discover_channels";
+        const { error: continuationError } = await admin.from("telegram_worker_tasks").insert({
+          workspace_id: task.workspace_id,
+          task_type: nextTaskType,
+          status: "queued",
+          payload: continuationPayload,
+          created_by: task.created_by ?? null,
+        });
+        if (continuationError && continuationError.code !== "23505") {
+          console.error("[telegram-worker-continuation]", continuationError.message);
         }
       }
       results.push({ taskId: task.id, status: "completed", result });
