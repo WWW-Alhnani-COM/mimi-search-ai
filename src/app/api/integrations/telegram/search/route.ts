@@ -40,13 +40,19 @@ export async function POST(request: Request) {
     });
   } catch (error) {
     const message = error instanceof Error ? error.message : "";
+    if (!["UNAUTHORIZED", "WORKSPACE_FORBIDDEN", "TELEGRAM_SESSION_UNAUTHORIZED",
+      "TELEGRAM_PUBLIC_SEARCH_PAYMENT_REQUIRED", "TELEGRAM_RATE_LIMITED", "TELEGRAM_QUERY_TOO_SHORT"].includes(message)) {
+      console.error("[telegram-search] Request failed", {
+        errorName: error instanceof Error ? error.name : "UnknownError",
+        errorCode: /^[A-Z0-9_]{3,80}$/.test(message) ? message : "UNCLASSIFIED_ERROR",
+      });
+    }
     const status = message === "UNAUTHORIZED" ? 401
       : message === "WORKSPACE_FORBIDDEN" ? 403
       : message === "TELEGRAM_SESSION_UNAUTHORIZED" ? 409
       : message === "TELEGRAM_PUBLIC_SEARCH_PAYMENT_REQUIRED" ? 402
       : message === "TELEGRAM_RATE_LIMITED" ? 429 : 400;
-    const safeError = message === "TELEGRAM_PUBLIC_SEARCH_PAYMENT_REQUIRED" ? "TELEGRAM_PUBLIC_SEARCH_PAYMENT_REQUIRED"
-      : message === "TELEGRAM_RATE_LIMITED" ? "TELEGRAM_RATE_LIMITED"
+    const safeError = ["TELEGRAM_PUBLIC_SEARCH_PAYMENT_REQUIRED", "TELEGRAM_RATE_LIMITED", "TELEGRAM_QUERY_TOO_SHORT"].includes(message) ? message
       : status === 401 ? "UNAUTHORIZED" : status === 403 ? "WORKSPACE_FORBIDDEN"
       : status === 409 ? "TELEGRAM_SESSION_UNAUTHORIZED" : "TELEGRAM_PUBLIC_SEARCH_FAILED";
     return NextResponse.json({ error: safeError }, { status });
