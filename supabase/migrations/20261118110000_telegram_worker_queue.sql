@@ -4,7 +4,7 @@
 create table if not exists public.telegram_worker_tasks (
   id uuid primary key default gen_random_uuid(),
   workspace_id uuid not null references public.workspaces(id) on delete cascade,
-  task_type text not null check (task_type in ('discover_channels','collect_channel','process_source_item')),
+  task_type text not null check (task_type in ('discover_channels','verify_channel','collect_channel','process_source_item')),
   status text not null default 'queued'
     check (status in ('queued','running','completed','partial','failed','cancelled')),
   payload jsonb not null default '{}'::jsonb,
@@ -298,3 +298,7 @@ drop trigger if exists enqueue_telegram_source_item_after_insert on public.sourc
 create trigger enqueue_telegram_source_item_after_insert
 after insert on public.source_items
 for each row execute function private.enqueue_telegram_source_item();
+
+create unique index if not exists telegram_worker_tasks_one_active_verification_idx
+  on public.telegram_worker_tasks(workspace_id, (payload->>'channelId'))
+  where status in ('queued','running') and task_type = 'verify_channel';
