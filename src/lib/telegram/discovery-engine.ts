@@ -80,15 +80,10 @@ export async function discoverTelegramChannels(
     throw new Error("DISCOVERY_FREE_PLAN_GUARD_NOT_CONFIRMED");
   }
 
-  const [{ data: settings, error: settingsError }, { data: rules, error: rulesError }] = await Promise.all([
-    admin.from("telegram_discovery_settings")
-      .select("auto_approve_enabled,minimum_approval_score")
-      .eq("workspace_id", workspaceId).maybeSingle(),
-    admin.from("telegram_channel_rules")
-      .select("id,rule_type,match_type,rule_value,country_code,priority")
-      .eq("workspace_id", workspaceId).eq("enabled", true).order("priority", { ascending: true }),
-  ]);
-  if (settingsError || rulesError) throw new Error("DISCOVERY_CONFIGURATION_READ_FAILED");
+  const { data: rules, error: rulesError } = await admin.from("telegram_channel_rules")
+    .select("id,rule_type,match_type,rule_value,country_code,priority")
+    .eq("workspace_id", workspaceId).eq("enabled", true).order("priority", { ascending: true });
+  if (rulesError) throw new Error("DISCOVERY_CONFIGURATION_READ_FAILED");
 
   const allRules = (rules ?? []) as Rule[];
   const includeRules = allRules.filter((rule) => rule.rule_type === "include").slice(ruleOffset, ruleOffset + MAX_SEARCH_QUERIES_PER_RUN);
