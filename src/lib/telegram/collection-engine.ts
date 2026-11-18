@@ -12,6 +12,13 @@ type PublicMessage = {
   postAuthor?: string;
 };
 
+function detectLanguage(text: string | null | undefined) {
+  if (!text?.trim()) return "und";
+  if (/[\\u0600-\\u06FF]/.test(text)) return "ar";
+  if (/[A-Za-z]/.test(text)) return "en";
+  return "und";
+}
+
 function messageDate(value: PublicMessage["date"]) {
   if (!value) return null;
   const date = value instanceof Date ? value : new Date(value);
@@ -125,7 +132,7 @@ export async function collectTelegramChannel(admin: any, workspaceId: string, ch
         source_type: "telegram_channel_post",
         author_public_id: senderId,
         author_display_name: message.postAuthor ?? null,
-        text_content: typeof message.text === "string" ? message.text : null,
+        text_content: typeof message.text === "string" ? message.text : null,\n        language_code: detectLanguage(message.text),
         published_at: publishedAt,
         country_code: channel.country_code,
         city_id: channel.city_id,
