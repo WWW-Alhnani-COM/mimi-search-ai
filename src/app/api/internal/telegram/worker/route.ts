@@ -20,7 +20,8 @@ async function enqueueScheduledTasks(admin: ReturnType<typeof createTelegramAdmi
   const now = new Date();
   const nowIso = now.toISOString();
   const searchReady = process.env.TELEGRAM_DISCOVERY_SEARCH_ENABLED === "true"
-    && Boolean(process.env.GOOGLE_CSE_API_KEY && process.env.GOOGLE_CSE_CX);
+    && process.env.TAVILY_FREE_PLAN_ONLY_CONFIRMED === "true"
+    && Boolean(process.env.TAVILY_API_KEY);
 
   if (searchReady) {
     const { data: dueSettings } = await admin.from("telegram_discovery_settings")
@@ -153,7 +154,13 @@ export async function POST(request: Request) {
       results.push({ taskId: task.id, status: "completed", result });
     } catch (error) {
       const message = error instanceof Error ? error.message : "WORKER_TASK_FAILED";
-      const retryable = task.attempts < task.max_attempts;
+      const permanentErrors = new Set([
+        "DISCOVERY_SEARCH_DISABLED", "DISCOVERY_PROVIDER_NOT_CONFIGURED",
+        "DISCOVERY_FREE_PLAN_GUARD_NOT_CONFIRMED", "DISCOVERY_MONTHLY_FREE_LIMIT_REACHED",
+        "DISCOVERY_INCLUDE_RULES_REQUIRED", "TELEGRAM_CONNECTION_REQUIRED",
+        "TELEGRAM_SESSION_NOT_FOUND", "TELEGRAM_SESSION_INVALID",
+      ]);
+      const retryable = task.attempts < task.max_attempts && !permanentErrors.has(message);
       const safeMessage = /^[A-Z0-9_]{3,80}$/.test(message) ? message : "WORKER_TASK_FAILED";
       if (task.task_type === "discover_channels" && !retryable) {
         await admin.from("telegram_discovery_settings").update({
