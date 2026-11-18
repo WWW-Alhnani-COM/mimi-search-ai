@@ -63,7 +63,17 @@ export function TelegramConnectionPanel({ workspaces }: { workspaces: Workspace[
       const result = await postJson("/api/integrations/telegram/search", { workspaceId, connectionId, query });
       setPosts(result.items ?? []);
       setMessage(`اكتمل البحث. النتائج العامة المطابقة: ${result.count ?? 0}.`);
-    } catch (error) { setMessage(error instanceof Error ? error.message : "تعذر البحث."); }
+    } catch (error) {
+      const code = error instanceof Error ? error.message : "";
+      const messages: Record<string, string> = {
+        TELEGRAM_PUBLIC_SEARCH_PAYMENT_REQUIRED: "يتطلب Telegram صلاحية أو اشتراكاً مؤهلاً لهذا البحث. لم يتم شراء Stars أو تنفيذ بحث مدفوع.",
+        TELEGRAM_RATE_LIMITED: "تم تجاوز حد طلبات البحث مؤقتاً. انتظر قليلاً ثم أعد المحاولة.",
+        TELEGRAM_QUERY_TOO_SHORT: "عبارة البحث قصيرة جداً. أدخل كلمتين أو أكثر.",
+        TELEGRAM_SESSION_UNAUTHORIZED: "انتهت صلاحية جلسة Telegram. أعد ربط الحساب.",
+        TELEGRAM_PUBLIC_SEARCH_FAILED: "تعذر تنفيذ البحث العام. راجع سجل التشخيص في Vercel لمعرفة رمز خطأ Telegram.",
+      };
+      setMessage(messages[code] ?? "تعذر البحث. تحقق من الاتصال ثم راجع سجل Vercel.");
+    }
     finally { setBusy(false); }
   }
 
