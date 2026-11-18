@@ -94,3 +94,16 @@ Deployment is intentionally not part of the current database milestone. Do not d
 ## License
 
 All rights reserved unless a license is added by the repository owner.
+
+
+## Telegram public connector
+
+The Telegram MTProto connector is under development on `feature/telegram-public-connector`.
+
+- Uses the maintained `teleproto` package (GramJS-compatible successor).
+- Searches public channel posts only; it does not join channels, read private chats, send messages, or pay Telegram Stars for search.
+- Setup, API credential creation, encrypted session bootstrap, and current limitations: [docs/telegram-connector.md](docs/telegram-connector.md).
+- Provider implementation: [src/lib/telegram/public-search.ts](src/lib/telegram/public-search.ts).
+- Local session bootstrap: `npm run telegram:session`.
+
+The connector is not active until a user explicitly authorizes a Telegram account and the trusted server-side session storage/persistence layer is completed. Never commit Telegram credentials or session data.
