@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useState, type FormEvent } from "react";
 import { createClient } from "@/lib/supabase/client";
-import { Archive, Check, CirclePause, CircleX, LoaderCircle, Plus, RefreshCw, Search, Settings2, SlidersHorizontal, Trash2 } from "lucide-react";
+import { Archive, Check, CirclePause, LoaderCircle, Plus, RefreshCw, Search, Settings2, SlidersHorizontal, Trash2 } from "lucide-react";
 
 type Workspace = { id: string; name: string };
 type Country = { code: string; name_ar: string; name_en: string };
