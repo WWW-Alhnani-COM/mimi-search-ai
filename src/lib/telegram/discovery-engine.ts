@@ -9,8 +9,8 @@ type Rule = {
   priority: number;
 };
 
-type SearchItem = { title?: string; snippet?: string; link?: string };
-type SearchResponse = { items?: SearchItem[]; error?: { message?: string; code?: number } };
+type SearchItem = { title?: string; content?: string; url?: string };
+type SearchResponse = { results?: SearchItem[]; detail?: string; message?: string };
 
 const MAX_SEARCH_QUERIES_PER_RUN = 1;
 const RESULTS_PER_QUERY = 10;
@@ -42,25 +42,30 @@ function extractPublicChannel(link: string) {
   }
 }
 
-async function googleSearch(query: string, countryCode: string | null) {
-  const key = process.env.GOOGLE_CSE_API_KEY;
-  const cx = process.env.GOOGLE_CSE_CX;
-  if (!key || !cx) throw new Error("DISCOVERY_PROVIDER_NOT_CONFIGURED");
-  const url = new URL("https://www.googleapis.com/customsearch/v1");
-  url.searchParams.set("key", key);
-  url.searchParams.set("cx", cx);
-  url.searchParams.set("q", query);
-  url.searchParams.set("num", String(RESULTS_PER_QUERY));
-  if (countryCode) url.searchParams.set("gl", countryCode.toLowerCase());
-
-  const response = await fetch(url, { signal: AbortSignal.timeout(12000), cache: "no-store" });
+async function tavilySearch(query: string, countryCode: string | null) {
+  const key = process.env.TAVILY_API_KEY;
+  if (!key) throw new Error("DISCOVERY_PROVIDER_NOT_CONFIGURED");
+  const response = await fetch("https://api.tavily.com/search", {
+    method: "POST",
+    headers: { "Content-Type": "application/json", Authorization: `Bearer ${key}` },
+    body: JSON.stringify({
+      query,
+      search_depth: "basic",
+      max_results: RESULTS_PER_QUERY,
+      include_domains: ["t.me"],
+      ...(countryCode ? { country: countryCode.toLowerCase() } : {}),
+      include_answer: false,
+      include_raw_content: false,
+    }),
+    signal: AbortSignal.timeout(12000),
+    cache: "no-store",
+  });
   const data = await response.json().catch(() => ({})) as SearchResponse;
   if (!response.ok) {
-    const code = data.error?.code;
-    if (code === 429) throw new Error("DISCOVERY_PROVIDER_QUOTA_REACHED");
+    if (response.status === 429) throw new Error("DISCOVERY_PROVIDER_QUOTA_REACHED");
     throw new Error("DISCOVERY_PROVIDER_REQUEST_FAILED");
   }
-  return data.items ?? [];
+  return data.results ?? [];
 }
 
 export async function discoverTelegramChannels(
@@ -70,6 +75,9 @@ export async function discoverTelegramChannels(
 ) {
   if (process.env.TELEGRAM_DISCOVERY_SEARCH_ENABLED !== "true") {
     throw new Error("DISCOVERY_SEARCH_DISABLED");
+  }
+  if (process.env.TAVILY_FREE_PLAN_ONLY_CONFIRMED !== "true") {
+    throw new Error("DISCOVERY_FREE_PLAN_GUARD_NOT_CONFIRMED");
   }
 
   const [{ data: settings, error: settingsError }, { data: rules, error: rulesError }] = await Promise.all([
@@ -92,13 +100,16 @@ export async function discoverTelegramChannels(
 
   for (const rule of includeRules) {
     const query = `site:t.me ${rule.rule_value} Telegram channel`;
-    const items = await googleSearch(query, rule.country_code);
+    const { data: quotaAllowed, error: quotaError } = await admin.rpc("claim_telegram_discovery_credit", { p_monthly_limit: 900 });
+    if (quotaError) throw new Error("DISCOVERY_QUOTA_RESERVATION_FAILED");
+    if (quotaAllowed !== true) throw new Error("DISCOVERY_MONTHLY_FREE_LIMIT_REACHED");
+    const items = await tavilySearch(query, rule.country_code);
     searches += 1;
 
     for (const item of items) {
       const title = (item.title ?? "").slice(0, 240);
-      const snippet = (item.snippet ?? "").slice(0, 1200);
-      const channel = item.link ? extractPublicChannel(item.link) : null;
+      const snippet = (item.content ?? "").slice(0, 1200);
+      const channel = item.url ? extractPublicChannel(item.link) : null;
       if (!channel) continue;
 
       const evidenceText = `${title} ${snippet}`;
@@ -150,7 +161,7 @@ export async function discoverTelegramChannels(
         evaluation_score: candidate.score,
         evaluation_details: {
           version: "discovery-v1",
-          provider: "google_custom_search",
+          provider: "tavily",
           matched_query: candidate.query,
           title: candidate.title,
           snippet: candidate.snippet,
@@ -173,7 +184,7 @@ export async function discoverTelegramChannels(
       source_url: candidate.publicUrl,
       search_query: candidate.query,
       source_metadata: {
-        provider: "google_custom_search",
+        provider: "tavily",
         title: candidate.title,
         snippet: candidate.snippet,
         evaluation_score: candidate.score,
