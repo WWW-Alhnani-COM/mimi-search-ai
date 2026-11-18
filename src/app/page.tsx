@@ -2,7 +2,7 @@ import { ThemeToggle } from "@/components/theme-toggle";
 import Link from "next/link";
 import { redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
-import { Activity, Bell, BriefcaseBusiness, ChartNoAxesCombined, CircleHelp, Compass, LayoutDashboard, Search, Settings2, ShieldCheck, Users, Zap } from "lucide-react";
+import { Activity, Bell, BriefcaseBusiness, ChartNoAxesCombined, CircleHelp, Compass, LayoutDashboard, Search, Settings2, Send, ShieldCheck, Users, Zap } from "lucide-react";
 
 export const dynamic = "force-dynamic";
 
@@ -32,6 +32,7 @@ export default async function Home() {
           {futureModules.map(({ label, icon: Icon }) => <div key={label} aria-disabled="true" className="flex cursor-not-allowed items-center gap-3 rounded-xl px-3 py-3 text-sm text-slate-400"><Icon size={18}/>{label}<span className="mr-auto text-[10px]">قريباً</span></div>)}
         </nav>
         <div className="mt-8 border-t border-border pt-5">
+          <Link href="/telegram/channels" className="flex items-center gap-3 rounded-xl px-3 py-3 text-sm font-semibold hover:bg-primary/10 hover:text-primary"><Send size={18}/>إدارة قنوات Telegram</Link>
           <Link href="/settings/connections/telegram" className="flex items-center gap-3 rounded-xl px-3 py-3 text-sm font-semibold hover:bg-primary/10 hover:text-primary"><Settings2 size={18}/>مصادر البيانات · Telegram</Link>
           <div className="flex items-center gap-3 rounded-xl px-3 py-3 text-sm text-slate-400"><CircleHelp size={18}/>المساعدة · قريباً</div>
         </div>
@@ -50,7 +51,7 @@ export default async function Home() {
           <div className="rounded-xl border border-dashed border-border p-5">
             <div className="flex items-center gap-2 text-sm font-bold"><Activity size={17}/>حالة النظام</div>
             <p className="mt-2 text-sm leading-7 text-slate-500">هذه النسخة لا تعرض أرقاماً تقديرية أو سجلات تجريبية. ستظهر مؤشرات العملاء والفرص فقط بعد تنفيذ وحدات الجمع والتخزين وربطها بقاعدة البيانات.</p>
-            <p className="mt-3 text-xs text-slate-400">وحدات اكتشاف Telegram وX وإدارة CRM لم تُفعّل بعد.</p>
+            <p className="mt-3 text-xs text-slate-400">أصبحت إدارة قنوات Telegram متاحة. أما الاكتشاف الآلي وجمع المنشورات وX وإدارة CRM فلم تُفعّل بعد.</p>
           </div>
         </section>
         <footer className="mt-10 border-t border-border pt-5 text-xs text-slate-400">Mimi Search AI · الإصدار التأسيسي</footer>
