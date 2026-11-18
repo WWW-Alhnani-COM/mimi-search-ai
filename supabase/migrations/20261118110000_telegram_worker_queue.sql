@@ -110,7 +110,7 @@ revoke all on function public.claim_telegram_worker_tasks(text,integer) from pub
 grant execute on function public.claim_telegram_worker_tasks(text,integer) to service_role;
 
 create index if not exists telegram_channels_collection_due_idx
-  on public.telegram_channels(workspace_id, last_collected_at)
+  on public.telegram_channels(workspace_id, last_collection_attempt_at)
   where status = 'approved' and collection_enabled = true;
 
 -- Channel-based collection runs do not require a user search query.
