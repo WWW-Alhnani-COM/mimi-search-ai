@@ -56,6 +56,7 @@ export function TelegramChannelManager({ workspaces, countries }: { workspaces: 
   const [ruleCountry, setRuleCountry] = useState("");
   const [loading, setLoading] = useState(false);
   const [saving, setSaving] = useState(false);
+  const [discovering, setDiscovering] = useState(false);
   const [message, setMessage] = useState("");
   const [error, setError] = useState("");
 
@@ -97,6 +98,33 @@ export function TelegramChannelManager({ workspaces, countries }: { workspaces: 
     review: channels.filter((item) => item.status === "review").length,
     approved: channels.filter((item) => item.status === "approved").length,
   }), [channels]);
+
+  async function startDiscovery() {
+    setDiscovering(true); setError(""); setMessage("");
+    try {
+      const response = await fetch("/api/telegram/discovery", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ workspaceId }),
+      });
+      const result = await response.json().catch(() => ({}));
+      if (!response.ok) {
+        const message = result.error === "DISCOVERY_ALREADY_QUEUED"
+          ? "توجد عملية اكتشاف قيد الانتظار بالفعل."
+          : result.error === "WORKSPACE_FORBIDDEN"
+            ? "لا تملك صلاحية تشغيل الاكتشاف في مساحة العمل."
+            : "تعذر وضع عملية الاكتشاف في قائمة المهام.";
+        throw new Error(message);
+      }
+      setMessage(result.alreadyQueued
+        ? "عملية الاكتشاف موجودة بالفعل في قائمة المهام."
+        : "تمت إضافة عملية اكتشاف القنوات إلى قائمة المهام. ستبدأ عند تشغيل العامل الخلفي.");
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "تعذر طلب اكتشاف القنوات.");
+    } finally {
+      setDiscovering(false);
+    }
+  }
 
   async function addChannel(event: FormEvent<HTMLFormElement>) {
     event.preventDefault(); setSaving(true); setMessage(""); setError("");
@@ -222,7 +250,7 @@ export function TelegramChannelManager({ workspaces, countries }: { workspaces: 
 
     {tab === "channels" && <div className="grid gap-5 xl:grid-cols-[minmax(0,1fr)_360px]">
       <section className="min-w-0 rounded-2xl border border-border bg-card p-4 md:p-5">
-        <div className="mb-4 flex flex-wrap items-center justify-between gap-3"><h2 className="font-extrabold">قائمة القنوات</h2><span className="text-xs text-slate-500">{filteredChannels.length} قناة</span></div>
+        <div className="mb-4 flex flex-wrap items-center justify-between gap-3"><h2 className="font-extrabold">قائمة القنوات</h2><div className="flex items-center gap-2"><span className="text-xs text-slate-500">{filteredChannels.length} قناة</span>{canManage && <button type="button" onClick={() => void startDiscovery()} disabled={discovering || saving} className="inline-flex items-center gap-2 rounded-xl bg-primary px-3 py-2 text-xs font-bold text-white disabled:opacity-50"><Search size={14}/>{discovering ? "جارٍ الإرسال…" : "اكتشاف قنوات"}</button>}</div></div>
         <div className="mb-4 grid gap-2 sm:grid-cols-[1fr_180px]">
           <label className="relative"><Search size={16} className="absolute right-3 top-3.5 text-slate-400"/><input value={search} onChange={(event) => setSearch(event.target.value)} placeholder="ابحث بالاسم أو المستخدم أو المجال" className="w-full rounded-xl border border-border bg-background py-3 pr-9 pl-3 text-sm"/></label>
           <select value={statusFilter} onChange={(event) => setStatusFilter(event.target.value)} className="rounded-xl border border-border bg-background px-3 py-3 text-sm"><option value="all">كل الحالات</option>{Object.entries(statusLabels).map(([value, label]) => <option key={value} value={value}>{label}</option>)}</select>
