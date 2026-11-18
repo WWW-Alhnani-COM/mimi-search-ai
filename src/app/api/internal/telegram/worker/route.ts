@@ -49,15 +49,16 @@ async function enqueueScheduledTasks(admin: ReturnType<typeof createTelegramAdmi
   }
 
   const { data: dueChannels } = await admin.from("telegram_channels")
-    .select("id,workspace_id,last_collected_at")
+    .select("id,workspace_id,last_collection_attempt_at")
     .eq("status", "approved").eq("collection_enabled", true)
+    .order("last_collection_attempt_at", { ascending: true, nullsFirst: true })
     .limit(30);
   for (const channel of dueChannels ?? []) {
     const { data: setting } = await admin.from("telegram_discovery_settings")
       .select("schedule_interval").eq("workspace_id", channel.workspace_id).maybeSingle();
     const interval = intervalMilliseconds(setting?.schedule_interval);
-    const lastCollected = channel.last_collected_at ? new Date(channel.last_collected_at).getTime() : 0;
-    if (lastCollected && now.getTime() - lastCollected < interval) continue;
+    const lastAttempt = channel.last_collection_attempt_at ? new Date(channel.last_collection_attempt_at).getTime() : 0;
+    if (lastAttempt && now.getTime() - lastAttempt < interval) continue;
 
     const { data: active } = await admin.from("telegram_worker_tasks").select("id")
       .eq("workspace_id", channel.workspace_id).eq("task_type", "collect_channel")
@@ -71,7 +72,7 @@ async function enqueueScheduledTasks(admin: ReturnType<typeof createTelegramAdmi
       status: "queued",
       payload: { channelId: channel.id, scheduled: true },
     });
-    await admin.from("telegram_channels").update({ last_collection_status: "queued" })
+    await admin.from("telegram_channels").update({ last_collection_status: "queued", last_collection_attempt_at: nowIso })
       .eq("id", channel.id).eq("workspace_id", channel.workspace_id);
   }
 }
@@ -158,10 +159,21 @@ export async function POST(request: Request) {
         "DISCOVERY_SEARCH_DISABLED", "DISCOVERY_PROVIDER_NOT_CONFIGURED",
         "DISCOVERY_FREE_PLAN_GUARD_NOT_CONFIRMED", "DISCOVERY_MONTHLY_FREE_LIMIT_REACHED",
         "DISCOVERY_INCLUDE_RULES_REQUIRED", "TELEGRAM_CONNECTION_REQUIRED",
-        "TELEGRAM_SESSION_NOT_FOUND", "TELEGRAM_SESSION_INVALID",
+        "TELEGRAM_SESSION_NOT_FOUND", "TELEGRAM_SESSION_INVALID", "TELEGRAM_SESSION_EXPIRED",
+        "TELEGRAM_CHANNEL_UNAVAILABLE", "TELEGRAM_CONFIGURATION_MISSING", "TELEGRAM_ENCRYPTION_KEY_INVALID",
+        "CHANNEL_NOT_FOUND", "CHANNEL_NOT_APPROVED",
       ]);
       const retryable = task.attempts < task.max_attempts && !permanentErrors.has(message);
       const safeMessage = /^[A-Z0-9_]{3,80}$/.test(message) ? message : "WORKER_TASK_FAILED";
+      if (task.task_type === "collect_channel") {
+        const channelId = typeof task.payload?.channelId === "string" ? task.payload.channelId : "";
+        if (channelId) {
+          await admin.from("telegram_channels").update({
+            last_collection_status: retryable ? "queued" : "failed",
+            last_collection_attempt_at: new Date().toISOString(),
+          }).eq("id", channelId).eq("workspace_id", task.workspace_id);
+        }
+      }
       if (task.task_type === "discover_channels" && !retryable) {
         await admin.from("telegram_discovery_settings").update({
           last_discovery_status: "failed",
