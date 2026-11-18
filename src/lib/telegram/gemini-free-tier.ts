@@ -123,6 +123,9 @@ export async function enhanceTelegramLeadWithGemini(
     let parsed: unknown;
     try { parsed = JSON.parse(output); } catch { return { used: false, reason: "GEMINI_INVALID_JSON" }; }
     if (!isAssessment(parsed)) return { used: false, reason: "GEMINI_INVALID_ASSESSMENT" };
+    if (["Advertisement", "General Discussion", "Irrelevant"].includes(parsed.category)) {
+      return { used: false, reason: "GEMINI_CLASSIFIED_NOT_A_LEAD" };
+    }
 
     const total = Object.keys(ranges).reduce((sum, key) => sum + Number(parsed[key as keyof GeminiAssessment]), 0);
     const classification = total >= 75 ? "high" : total >= 50 ? "review" : "low";
@@ -147,7 +150,7 @@ export async function enhanceTelegramLeadWithGemini(
       geographic_clarity: parsed.geographic_clarity,
       total_score: total,
       classification,
-      reasons: [parsed.category, parsed.summary, ...parsed.reasons.slice(0, 8)],
+      reasons: [parsed.category, parsed.summary.slice(0, 500), ...parsed.reasons.slice(0, 8).map((reason) => reason.slice(0, 180))],
       scorer_version: "gemini-free-v1",
     };
 
