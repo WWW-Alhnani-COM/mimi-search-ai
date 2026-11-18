@@ -140,17 +140,6 @@ export async function collectTelegramChannel(admin: any, workspaceId: string, ch
         .select("id");
       if (saveError) throw new Error("SOURCE_ITEMS_SAVE_FAILED");
       inserted = saved?.length ?? 0;
-      const newSourceItemIds = (saved ?? []).map((item: { id: string }) => item.id);
-      if (newSourceItemIds.length) {
-        const processingTasks = newSourceItemIds.map((sourceItemId: string) => ({
-          workspace_id: workspaceId,
-          task_type: "process_source_item",
-          status: "queued",
-          payload: { sourceItemId },
-        }));
-        const { error: taskError } = await admin.from("telegram_worker_tasks").insert(processingTasks);
-        if (taskError) throw new Error("SOURCE_PROCESSING_QUEUE_FAILED");
-      }
     }
 
     const channelPatch: Record<string, unknown> = {
