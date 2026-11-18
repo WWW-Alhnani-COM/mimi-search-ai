@@ -81,7 +81,7 @@ export async function POST(request: Request) {
       const migration = error as Error & { code?: unknown; errorMessage?: unknown };
       const migrationMessage = typeof migration.errorMessage === "string" ? migration.errorMessage : "";
       const match = migration.code === 303
-        ? migrationMessage.match(/^PHONE_MIGRATE_(\\d+)$/)
+        ? migrationMessage.match(/^PHONE_MIGRATE_(\d+)$/)
         : null;
 
       if (!match) throw error;
