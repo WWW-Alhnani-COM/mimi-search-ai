@@ -56,7 +56,7 @@ function requiredEnv(name: string): string {
 }
 
 function normalizeQuery(query: string): string {
-  const normalized = query.trim().replace(/\\s+/g, " ");
+  const normalized = query.trim().replace(/\s+/g, " ");
   if (normalized.length < 2) throw new Error("Telegram search query must contain at least 2 characters.");
   if (normalized.length > 128) throw new Error("Telegram search query cannot exceed 128 characters.");
   return normalized;
@@ -162,13 +162,27 @@ export async function searchTelegramPublicPosts(
     };
   } catch (error) {
     const message = error instanceof Error ? error.message : "Unknown Telegram connector error";
-    if (/SEARCH_QUERY_TOO_SHORT|QUERY_TOO_SHORT/i.test(message)) {
+    const details = error && typeof error === "object" ? error as Record<string, unknown> : {};
+    const rpcMessageValue = [details.errorMessage, details.message, details.messageText]
+      .find((value): value is string => typeof value === "string" && value.length > 0);
+    const rpcMessage = rpcMessageValue?.match(/\b[A-Z][A-Z0-9_]{2,80}\b/)?.[0] ?? null;
+    const rpcCodeValue = details.errorCode ?? details.code;
+    const rpcCode = typeof rpcCodeValue === "number" && Number.isFinite(rpcCodeValue) ? rpcCodeValue : null;
+
+    // Log only allowlisted RPC diagnostics. Never log request bodies, phone numbers, or sessions.
+    console.error("[telegram-search] RPC failure", {
+      errorName: error instanceof Error ? error.name : "UnknownError",
+      rpcCode,
+      rpcMessage,
+    });
+
+    if (/SEARCH_QUERY_TOO_SHORT|QUERY_TOO_SHORT/i.test(message + " " + (rpcMessage ?? ""))) {
       throw new Error("TELEGRAM_QUERY_TOO_SHORT");
     }
-    if (/SEARCH.*(PAID|STARS)|STARS.*SEARCH|PAYMENT_REQUIRED/i.test(message)) {
+    if (/PREMIUM_ACCOUNT_REQUIRED|SEARCH.*(PAID|STARS)|STARS.*SEARCH|PAYMENT_REQUIRED/i.test(message + " " + (rpcMessage ?? ""))) {
       throw new Error("TELEGRAM_PUBLIC_SEARCH_PAYMENT_REQUIRED");
     }
-    if (/FLOOD_WAIT|FLOOD_PREMIUM_WAIT/i.test(message)) {
+    if (/FLOOD_WAIT|FLOOD_PREMIUM_WAIT/i.test(message + " " + (rpcMessage ?? ""))) {
       throw new Error("TELEGRAM_RATE_LIMITED");
     }
     throw error;
