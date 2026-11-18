@@ -73,7 +73,31 @@ export async function POST(request: Request) {
     await client.connect();
 
     stage = "send_code";
-    const sent = await client.sendCode({ apiId, apiHash }, phoneNumber);
+    let sent;
+    try {
+      sent = await client.sendCode({ apiId, apiHash }, phoneNumber);
+    } catch (error) {
+      const migration = error as Error & { code?: unknown; errorMessage?: unknown };
+      const migrationMessage = typeof migration.errorMessage === "string" ? migration.errorMessage : "";
+      const match = migration.code === 303
+        ? migrationMessage.match(/^PHONE_MIGRATE_(\\d+)$/)
+        : null;
+
+      if (!match) throw error;
+
+      const targetDc = Number(match[1]);
+      if (!Number.isInteger(targetDc) || targetDc < 1 || targetDc > 5) throw error;
+
+      stage = "telegram_dc_migration";
+      const migratableClient = client as TelegramClient & {
+        _switchDC?: (dcId: number) => Promise<unknown>;
+      };
+      if (typeof migratableClient._switchDC !== "function") throw error;
+
+      await migratableClient._switchDC(targetDc);
+      stage = "send_code_retry";
+      sent = await client.sendCode({ apiId, apiHash }, phoneNumber);
+    }
 
     stage = "encrypt_pending";
     const state = {
