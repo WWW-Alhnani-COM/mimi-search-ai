@@ -39,6 +39,7 @@ alter table public.telegram_channels
   add column if not exists initial_history_latest_message_id bigint,
   add column if not exists initial_history_complete boolean not null default false,
   add column if not exists last_collected_at timestamptz,
+  add column if not exists last_collection_attempt_at timestamptz,
   add column if not exists collection_enabled boolean not null default false,
   add column if not exists last_collection_status text
     check (last_collection_status is null or last_collection_status in ('idle','queued','running','completed','partial','failed'));
