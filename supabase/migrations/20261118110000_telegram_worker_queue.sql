@@ -225,3 +225,13 @@ revoke all on function public.claim_telegram_ai_request(uuid,integer) from publi
 grant execute on function public.claim_telegram_ai_request(uuid,integer) to service_role;
 revoke all on function public.record_telegram_ai_usage(uuid,bigint,bigint) from public,anon,authenticated;
 grant execute on function public.record_telegram_ai_usage(uuid,bigint,bigint) to service_role;
+
+-- Schedule metadata is read by the worker; no schedule is activated by this migration.
+alter table public.telegram_discovery_settings
+  add column if not exists next_discovery_at timestamptz,
+  add column if not exists last_discovery_at timestamptz,
+  add column if not exists last_discovery_status text
+    check (last_discovery_status is null or last_discovery_status in ('queued','running','completed','partial','failed'));
+create index if not exists telegram_discovery_settings_due_idx
+  on public.telegram_discovery_settings(next_discovery_at)
+  where discovery_enabled = true;
