@@ -90,7 +90,8 @@ export async function enhanceTelegramLeadWithGemini(
     "Do not infer names, phone numbers, email addresses, budgets, locations, or facts absent from the post.",
     "The summary must be a concise factual summary in Arabic. reasons must be an array of short evidence-based strings.",
     `Published at: ${item.published_at ?? "unknown"}`,
-    `Country code: ${item.country_code ?? "unknown"}`,\n    `Language: ${item.language_code ?? "unknown"}`,
+    "Channel region is not necessarily the poster location. Do not infer lead location from channel metadata.",
+    `Language: ${item.language_code ?? "unknown"}`,
     `Post text: ${(item.text_content ?? "").slice(0, 3500)}`,
   ].join("\n");
 
