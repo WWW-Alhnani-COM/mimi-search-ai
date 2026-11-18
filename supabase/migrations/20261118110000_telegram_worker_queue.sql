@@ -267,3 +267,33 @@ end;
 $function$;
 revoke all on function public.claim_telegram_discovery_credit(integer) from public,anon,authenticated;
 grant execute on function public.claim_telegram_discovery_credit(integer) to service_role;
+
+-- Atomically enqueue deterministic lead processing whenever a Telegram post is first stored.
+create or replace function private.enqueue_telegram_source_item()
+returns trigger
+language plpgsql
+security definer
+set search_path to ''
+as $function$
+begin
+  if new.platform = 'telegram' then
+    begin
+      insert into public.telegram_worker_tasks(
+        workspace_id, task_type, status, payload
+      ) values (
+        new.workspace_id, 'process_source_item', 'queued',
+        jsonb_build_object('sourceItemId', new.id)
+      );
+    exception when unique_violation then
+      null;
+    end;
+  end if;
+  return new;
+end;
+$function$;
+revoke all on function private.enqueue_telegram_source_item() from public,anon,authenticated;
+
+drop trigger if exists enqueue_telegram_source_item_after_insert on public.source_items;
+create trigger enqueue_telegram_source_item_after_insert
+after insert on public.source_items
+for each row execute function private.enqueue_telegram_source_item();
