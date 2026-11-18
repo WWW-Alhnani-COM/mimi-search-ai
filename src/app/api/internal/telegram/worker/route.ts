@@ -2,6 +2,7 @@ import { timingSafeEqual } from "node:crypto";
 import { NextResponse } from "next/server";
 import { createTelegramAdminClient } from "@/lib/telegram/auth-server";
 import { discoverTelegramChannels } from "@/lib/telegram/discovery-engine";
+import { collectTelegramChannel } from "@/lib/telegram/collection-engine";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -34,8 +35,16 @@ export async function POST(request: Request) {
   const results: Array<{ taskId: string; status: string; result?: unknown; error?: string }> = [];
   for (const task of tasks ?? []) {
     try {
-      if (task.task_type !== "discover_channels") throw new Error("UNSUPPORTED_TASK_TYPE");
-      const result = await discoverTelegramChannels(admin, task.workspace_id);
+      let result: Record<string, unknown>;
+      if (task.task_type === "discover_channels") {
+        result = await discoverTelegramChannels(admin, task.workspace_id);
+      } else if (task.task_type === "collect_channel") {
+        const channelId = typeof task.payload?.channelId === "string" ? task.payload.channelId : "";
+        if (!channelId) throw new Error("CHANNEL_ID_MISSING");
+        result = await collectTelegramChannel(admin, task.workspace_id, channelId) as unknown as Record<string, unknown>;
+      } else {
+        throw new Error("UNSUPPORTED_TASK_TYPE");
+      }
       const { error: updateError } = await admin.from("telegram_worker_tasks").update({
         status: "completed",
         result,
@@ -46,6 +55,18 @@ export async function POST(request: Request) {
         updated_at: new Date().toISOString(),
       }).eq("id", task.id);
       if (updateError) throw new Error("TASK_COMPLETION_SAVE_FAILED");
+      if (result.hasMore === true && task.task_type === "collect_channel") {
+        const channelId = typeof task.payload?.channelId === "string" ? task.payload.channelId : "";
+        if (channelId) {
+          await admin.from("telegram_worker_tasks").insert({
+            workspace_id: task.workspace_id,
+            task_type: "collect_channel",
+            status: "queued",
+            payload: { channelId, continuationOf: task.id },
+            created_by: task.created_by ?? null,
+          });
+        }
+      }
       results.push({ taskId: task.id, status: "completed", result });
     } catch (error) {
       const message = error instanceof Error ? error.message : "WORKER_TASK_FAILED";
