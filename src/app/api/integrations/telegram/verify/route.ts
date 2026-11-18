@@ -94,7 +94,7 @@ export async function POST(request: Request) {
       granted_scopes: ["public_channel_posts"],
       connected_by: authData.user.id,
       last_checked_at: new Date().toISOString(),
-    }, { onConflict: "workspace_id,platform,external_account_id" }).select("id").single();
+    }, { onConflict: "workspace_id,platform,external_account_id" }).select("id,display_name").single();
     if (connectionError || !connection) throw new Error("TELEGRAM_CONNECTION_SAVE_FAILED");
 
     const encryptedSession = encryptTelegramState({ sessionString: session.save() });
