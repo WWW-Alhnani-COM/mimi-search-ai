@@ -14,7 +14,7 @@ type PublicMessage = {
 
 function detectLanguage(text: string | null | undefined) {
   if (!text?.trim()) return "und";
-  if (/[\\u0600-\\u06FF]/.test(text)) return "ar";
+  if (/[\u0600-\u06FF]/.test(text)) return "ar";
   if (/[A-Za-z]/.test(text)) return "en";
   return "und";
 }
