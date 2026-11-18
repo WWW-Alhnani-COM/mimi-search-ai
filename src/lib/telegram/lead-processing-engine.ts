@@ -1,4 +1,5 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
+import { enhanceTelegramLeadWithGemini } from "@/lib/telegram/gemini-free-tier";
 
 type SourceItem = {
   id: string;
@@ -197,6 +198,8 @@ export async function processTelegramSourceItem(admin: SupabaseClient, workspace
     : await admin.from("lead_assessments").insert(assessment);
   if (assessmentWrite.error) throw new Error("LEAD_ASSESSMENT_SAVE_FAILED");
 
+  const ai = await enhanceTelegramLeadWithGemini(admin, workspaceId, item as SourceItem, lead.id);
+
   return {
     processed: true,
     leadId: lead.id,
@@ -204,5 +207,6 @@ export async function processTelegramSourceItem(admin: SupabaseClient, workspace
     score: scoring.total,
     classification: scoring.classification,
     matchedKeywords: positiveMatches.length,
+    ai,
   };
 }
