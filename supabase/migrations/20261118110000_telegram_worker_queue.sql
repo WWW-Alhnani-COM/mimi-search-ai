@@ -306,3 +306,9 @@ create unique index if not exists telegram_worker_tasks_one_active_verification_
 alter table public.source_items
   add column if not exists language_code text
     check (language_code is null or length(language_code) between 2 and 12);
+
+drop policy if exists telegram_discovery_provider_usage_authenticated_read on public.telegram_discovery_provider_usage;
+create policy telegram_discovery_provider_usage_authenticated_read
+  on public.telegram_discovery_provider_usage for select to authenticated
+  using ((select auth.uid()) is not null);
+grant select on public.telegram_discovery_provider_usage to authenticated;
