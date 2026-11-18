@@ -35,6 +35,8 @@ create unique index if not exists telegram_worker_tasks_one_active_discovery_idx
 
 alter table public.telegram_channels
   add column if not exists last_synced_message_id bigint,
+  add column if not exists history_cursor_message_id bigint,
+  add column if not exists initial_history_complete boolean not null default false,
   add column if not exists last_collected_at timestamptz,
   add column if not exists collection_enabled boolean not null default false,
   add column if not exists last_collection_status text
@@ -108,3 +110,22 @@ grant execute on function public.claim_telegram_worker_tasks(text,integer) to se
 create index if not exists telegram_channels_collection_due_idx
   on public.telegram_channels(workspace_id, last_collected_at)
   where status = 'approved' and collection_enabled = true;
+
+-- Channel-based collection runs do not require a user search query.
+alter table public.collection_runs alter column search_query_id drop not null;
+alter table public.collection_runs
+  add column if not exists telegram_channel_id uuid;
+alter table public.collection_runs
+  drop constraint if exists collection_runs_telegram_channel_id_fkey;
+alter table public.collection_runs
+  add constraint collection_runs_telegram_channel_id_fkey
+  foreign key (telegram_channel_id, workspace_id)
+  references public.telegram_channels(id, workspace_id) on delete set null (telegram_channel_id);
+
+create unique index if not exists telegram_worker_tasks_one_active_collection_idx
+  on public.telegram_worker_tasks(workspace_id, (payload->>'channelId'))
+  where status in ('queued','running') and task_type = 'collect_channel';
+
+create index if not exists telegram_channels_history_cursor_idx
+  on public.telegram_channels(workspace_id, history_cursor_message_id)
+  where initial_history_complete = false;
