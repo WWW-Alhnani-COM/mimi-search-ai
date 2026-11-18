@@ -1,6 +1,7 @@
 import { redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
-import { TelegramConnectionPanel } from "@/components/telegram-connection-panel";\nimport Link from "next/link";
+import { TelegramConnectionPanel } from "@/components/telegram-connection-panel";
+import Link from "next/link";
 
 export const dynamic = "force-dynamic";
 
