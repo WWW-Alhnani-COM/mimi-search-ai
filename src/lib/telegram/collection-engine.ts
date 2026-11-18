@@ -70,8 +70,8 @@ export async function collectTelegramChannel(admin: any, workspaceId: string, ch
     const lastSynced = channel.last_synced_message_id ? Number(channel.last_synced_message_id) : null;
 
     const messages = await client.getMessages(entity, historyComplete
-      ? { limit: 100, minId: lastSynced ?? 0, reverse: true }
-      : { limit: 100, ...(cursor ? { maxId: cursor } : {}) });
+      ? { limit: 20, minId: lastSynced ?? 0, reverse: true }
+      : { limit: 20, ...(cursor ? { maxId: cursor } : {}) });
     const page = (messages as unknown as PublicMessage[]).filter((message) => Number.isInteger(message.id) && message.id > 0);
     const chronological = [...page].sort((a, b) => a.id - b.id);
     const newestId = chronological.reduce((max, item) => Math.max(max, item.id), lastSynced ?? 0);
@@ -84,10 +84,12 @@ export async function collectTelegramChannel(admin: any, workspaceId: string, ch
         });
 
     const oldestDate = chronological.length ? messageDate(chronological[0].date) : null;
-    const hasMoreHistory = !historyComplete && chronological.length === 100
-      && (!oldestDate || new Date(oldestDate).getTime() >= historyCutoff);
-    const nextHistoryCursor = hasMoreHistory && oldestId !== Number.MAX_SAFE_INTEGER ? oldestId : null;
+    const hasMoreHistory = historyComplete
+      ? chronological.length === 20
+      : chronological.length === 20 && (!oldestDate || new Date(oldestDate).getTime() >= historyCutoff);
+    const nextHistoryCursor = !historyComplete && hasMoreHistory && oldestId !== Number.MAX_SAFE_INTEGER ? oldestId : null;
     const nextHistoryComplete = historyComplete || !hasMoreHistory;
+    const initialLatestMessageId = Number(channel.initial_history_latest_message_id ?? 0) || newestId;
 
     const { data: run, error: runError } = await admin.from("collection_runs").insert({
       workspace_id: workspaceId,
@@ -99,7 +101,7 @@ export async function collectTelegramChannel(admin: any, workspaceId: string, ch
       metadata: {
         collection_mode: historyComplete ? "incremental" : "initial_history",
         history_days: historyDays,
-        page_size: 100,
+        page_size: 20,
       },
     }).select("id").single();
     if (runError || !run) throw new Error("COLLECTION_RUN_CREATE_FAILED");
@@ -147,7 +149,12 @@ export async function collectTelegramChannel(admin: any, workspaceId: string, ch
     if (!historyComplete) {
       channelPatch.history_cursor_message_id = nextHistoryCursor;
       channelPatch.initial_history_complete = nextHistoryComplete;
-      if (nextHistoryComplete && newestId > 0) channelPatch.last_synced_message_id = newestId;
+      if (nextHistoryComplete) {
+        channelPatch.last_synced_message_id = initialLatestMessageId > 0 ? initialLatestMessageId : null;
+        channelPatch.initial_history_latest_message_id = null;
+      } else {
+        channelPatch.initial_history_latest_message_id = initialLatestMessageId > 0 ? initialLatestMessageId : null;
+      }
     } else if (newestId > lastSynced!) {
       channelPatch.last_synced_message_id = newestId;
     }
