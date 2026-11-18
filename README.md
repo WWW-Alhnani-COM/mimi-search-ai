@@ -106,4 +106,4 @@ The Telegram MTProto connector is under development on `feature/telegram-public-
 - Provider implementation: [src/lib/telegram/public-search.ts](src/lib/telegram/public-search.ts).
 - Local session bootstrap: `npm run telegram:session`.
 
-The connector is not active until a user explicitly authorizes a Telegram account and the trusted server-side session storage/persistence layer is completed. Never commit Telegram credentials or session data.
+The web authorization flow, encrypted pending-session storage, private session vault, and public-post search test UI are implemented on the feature branch. A real Telegram account connection, real search test, CI pass for the latest commit, and persistence of collected posts into the discovery tables are still pending. The pull request remains Draft and is not deployed to Production. Never commit Telegram credentials or session data.
