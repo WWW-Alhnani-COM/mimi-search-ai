@@ -317,3 +317,32 @@ begin
     execute format('create index if not exists %I on %I.%I (%s)',idx_name,fk.schema_name,fk.table_name,col_list);
   end loop;
 end $indexes$;
+
+
+-- Role-aware write policies: viewers may read but cannot mutate workspace data.
+create or replace function private.is_workspace_editor(target_workspace uuid)
+returns boolean language sql stable security definer set search_path=''
+as $function$
+  select exists(select 1 from public.workspace_members wm
+    where wm.workspace_id=target_workspace and wm.user_id=(select auth.uid())
+      and wm.role in ('owner','admin','member'));
+$function$;
+revoke all on function private.is_workspace_editor(uuid) from public,anon;
+grant execute on function private.is_workspace_editor(uuid) to authenticated;
+
+do $policies$
+declare t text;
+begin
+  foreach t in array array['keyword_sets','keyword_variants','search_queries','search_query_sources','search_query_countries','search_query_cities','search_query_keyword_sets'] loop
+    execute format('drop policy if exists %I on public.%I',t||'_workspace_insert',t);
+    execute format('create policy %I on public.%I for insert to authenticated with check(private.is_workspace_editor(workspace_id))',t||'_workspace_insert',t);
+    execute format('drop policy if exists %I on public.%I',t||'_workspace_update',t);
+    execute format('create policy %I on public.%I for update to authenticated using(private.is_workspace_editor(workspace_id)) with check(private.is_workspace_editor(workspace_id))',t||'_workspace_update',t);
+    execute format('drop policy if exists %I on public.%I',t||'_workspace_delete',t);
+    execute format('create policy %I on public.%I for delete to authenticated using(private.is_workspace_editor(workspace_id))',t||'_workspace_delete',t);
+  end loop;
+end $policies$;
+
+drop policy if exists leads_workspace_update on public.leads;
+create policy leads_workspace_update on public.leads for update to authenticated
+using(private.is_workspace_editor(workspace_id)) with check(private.is_workspace_editor(workspace_id));
