@@ -109,12 +109,11 @@ export async function discoverTelegramChannels(
     for (const item of items) {
       const title = (item.title ?? "").slice(0, 240);
       const snippet = (item.content ?? "").slice(0, 1200);
-      const channel = item.url ? extractPublicChannel(item.link) : null;
+      const channel = item.url ? extractPublicChannel(item.url) : null;
       if (!channel) continue;
 
       const evidenceText = `${title} ${snippet}`;
       if (excludeRules.some((excludeRule) => matchesRule(evidenceText, excludeRule))) continue;
-      if (!matchesRule(evidenceText, rule) && !normalizeText(query)) continue;
 
       const score = Math.min(100, 50 + (title ? 15 : 0) + (snippet ? 15 : 0) + (rule.country_code ? 5 : 0));
       const key = channel.username.toLowerCase();
