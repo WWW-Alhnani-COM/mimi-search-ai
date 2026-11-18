@@ -13,16 +13,19 @@ export default async function TelegramChannelsPage() {
 
   const { data: memberships } = await supabase
     .from("workspace_members")
-    .select("workspace_id")
+    .select("workspace_id,role")
     .eq("user_id", user.id);
 
   const workspaceIds = (memberships ?? []).map((item) => item.workspace_id);
+  const canManageByWorkspace = new Map((memberships ?? []).map((item) => [item.workspace_id, ["owner", "admin", "member"].includes(item.role)]));
   const [{ data: workspaces }, { data: countries }] = await Promise.all([
     workspaceIds.length
       ? supabase.from("workspaces").select("id,name").in("id", workspaceIds).order("created_at", { ascending: true })
       : Promise.resolve({ data: [] as { id: string; name: string }[] }),
     supabase.from("countries").select("code,name_ar,name_en").eq("is_active", true).order("name_ar"),
   ]);
+
+  const workspaceOptions = (workspaces ?? []).map((workspace) => ({ ...workspace, canManage: canManageByWorkspace.get(workspace.id) ?? false }));
 
   return (
     <main className="mx-auto min-h-screen w-full max-w-7xl space-y-6 p-5 md:p-8">
@@ -35,7 +38,7 @@ export default async function TelegramChannelsPage() {
         </div>
         <Link href="/settings/connections/telegram" className="rounded-xl border border-border bg-card px-4 py-3 text-sm font-bold hover:border-primary">إعداد اتصال Telegram</Link>
       </header>
-      <TelegramChannelManager workspaces={workspaces ?? []} countries={countries ?? []}/>
+      <TelegramChannelManager workspaces={workspaceOptions} countries={countries ?? []}/>
       <p className="text-xs leading-6 text-slate-400">هذه الواجهة لا تنضم إلى القنوات ولا تجمع منشوراتها. اعتماد القناة يسجل موافقتها ضمن قائمة المصادر فقط؛ تشغيل الجمع والاكتشاف الآلي سيكون في مرحلة مستقلة.</p>
     </main>
   );
