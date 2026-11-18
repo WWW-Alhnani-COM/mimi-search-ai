@@ -15,7 +15,7 @@ type SourceItem = {
   city_id: string | null;
 };
 
-type KeywordVariant = { term: string; is_negative: boolean; match_type: string };
+type KeywordVariant = { term: string; is_negative: boolean; match_type: string; language_code: string | null };
 
 const BUYER_NEED = [
   "مطلوب", "نبحث عن", "ابحث عن", "أبحث عن", "نحتاج", "احتاج", "أحتاج",
@@ -107,7 +107,7 @@ function scoreLead(text: string, item: SourceItem, category: string) {
 
 export async function processTelegramSourceItem(admin: SupabaseClient, workspaceId: string, sourceItemId: string) {
   const { data: item, error: itemError } = await admin.from("source_items")
-    .select("id,workspace_id,external_item_id,source_url,source_name,author_public_id,author_display_name,text_content,published_at,country_code,city_id")
+    .select("id,workspace_id,external_item_id,source_url,source_name,author_public_id,author_display_name,text_content,language_code,published_at,country_code,city_id")
     .eq("id", sourceItemId).eq("workspace_id", workspaceId).maybeSingle();
   if (itemError || !item) throw new Error("SOURCE_ITEM_NOT_FOUND");
 
@@ -121,9 +121,9 @@ export async function processTelegramSourceItem(admin: SupabaseClient, workspace
   let keywords: KeywordVariant[] = [];
   if (setIds.length) {
     const { data: variants, error: variantsError } = await admin.from("keyword_variants")
-      .select("term,is_negative,match_type").eq("workspace_id", workspaceId).in("keyword_set_id", setIds);
+      .select("term,is_negative,match_type,language_code").eq("workspace_id", workspaceId).in("keyword_set_id", setIds);
     if (variantsError) throw new Error("KEYWORD_VARIANTS_READ_FAILED");
-    keywords = (variants ?? []) as KeywordVariant[];
+    keywords = ((variants ?? []) as KeywordVariant[]).filter((variant) => !variant.language_code || variant.language_code === item.language_code || variant.language_code === "und");
   }
 
   const positiveMatches = keywords.filter((keyword) => !keyword.is_negative && matchKeyword(text, keyword));
@@ -162,7 +162,7 @@ export async function processTelegramSourceItem(admin: SupabaseClient, workspace
   const relevanceReason = [
     category,
     ...scoring.reasons,
-    ...(positiveMatches.length ? [`مطابقة كلمات مفتاحية: ${positiveMatches.map((item) => item.term).slice(0, 5).join("، ")}`] : []),
+    ...(item.language_code ? [`لغة المنشور: ${item.language_code}`] : []),\n    ...(positiveMatches.length ? [`مطابقة كلمات مفتاحية: ${positiveMatches.map((item) => item.term).slice(0, 5).join("، ")}`] : []),
   ].join(" ");
 
   const { error: evidenceError } = await admin.from("lead_evidence").upsert({
