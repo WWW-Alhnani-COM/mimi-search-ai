@@ -134,3 +134,7 @@ create index if not exists telegram_channels_history_cursor_idx
 create unique index if not exists telegram_channel_sources_deduplicate_idx
   on public.telegram_channel_discovery_sources(workspace_id, channel_id, source_kind, source_url)
   where source_url is not null;
+
+create unique index if not exists telegram_worker_tasks_one_active_source_item_idx
+  on public.telegram_worker_tasks(workspace_id, (payload->>'sourceItemId'))
+  where status in ('queued','running') and task_type = 'process_source_item';
