@@ -42,7 +42,7 @@ function extractPublicChannel(link: string) {
   }
 }
 
-async function tavilySearch(query: string, countryCode: string | null) {
+async function tavilySearch(query: string) {
   const key = process.env.TAVILY_API_KEY;
   if (!key) throw new Error("DISCOVERY_PROVIDER_NOT_CONFIGURED");
   const response = await fetch("https://api.tavily.com/search", {
@@ -103,7 +103,7 @@ export async function discoverTelegramChannels(
     const { data: quotaAllowed, error: quotaError } = await admin.rpc("claim_telegram_discovery_credit", { p_monthly_limit: 900 });
     if (quotaError) throw new Error("DISCOVERY_QUOTA_RESERVATION_FAILED");
     if (quotaAllowed !== true) throw new Error("DISCOVERY_MONTHLY_FREE_LIMIT_REACHED");
-    const items = await tavilySearch(query, rule.country_code);
+    const items = await tavilySearch(query);
     searches += 1;
 
     for (const item of items) {
