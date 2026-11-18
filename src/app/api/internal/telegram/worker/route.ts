@@ -86,7 +86,7 @@ function authorized(request: Request) {
   return a.length === b.length && timingSafeEqual(a, b);
 }
 
-export async function POST() {
+export async function POST(request: Request) {
   if (!authorized(request)) return NextResponse.json({ error: "UNAUTHORIZED" }, { status: 401 });
 
   const admin = createTelegramAdminClient();
