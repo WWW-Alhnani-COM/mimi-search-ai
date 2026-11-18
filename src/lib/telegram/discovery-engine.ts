@@ -175,6 +175,13 @@ export async function discoverTelegramChannels(
       }
       channelId = created.id;
       inserted += 1;
+      const { error: verificationQueueError } = await admin.from("telegram_worker_tasks").insert({
+        workspace_id: workspaceId,
+        task_type: "verify_channel",
+        status: "queued",
+        payload: { channelId: channelId, verificationSource: "discovery" },
+      });
+      if (verificationQueueError && verificationQueueError.code !== "23505") errors.push("CHANNEL_VERIFICATION_QUEUE_FAILED");
     }
 
     const { error: sourceError } = await admin.from("telegram_channel_discovery_sources").insert({
