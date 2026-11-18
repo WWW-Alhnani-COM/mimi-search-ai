@@ -50,7 +50,7 @@ export default async function Home() {
           <div className="rounded-xl border border-dashed border-border p-5">
             <div className="flex items-center gap-2 text-sm font-bold"><Activity size={17}/>حالة النظام</div>
             <p className="mt-2 text-sm leading-7 text-slate-500">هذه النسخة لا تعرض أرقاماً تقديرية أو سجلات تجريبية. ستظهر مؤشرات العملاء والفرص فقط بعد تنفيذ وحدات الجمع والتخزين وربطها بقاعدة البيانات.</p>
-            <p className="mt-3 text-xs text-slate-400">وحدات اكتشاف Telegram وX وإدارة CRM لم تُفعّل بعد.</p>
+            <p className="mt-3 text-xs text-slate-400">أصبحت إدارة قنوات Telegram متاحة. أما الاكتشاف الآلي وجمع المنشورات وX وإدارة CRM فلم تُفعّل بعد.</p>
           </div>
         </section>
         <footer className="mt-10 border-t border-border pt-5 text-xs text-slate-400">Mimi Search AI · الإصدار التأسيسي</footer>
