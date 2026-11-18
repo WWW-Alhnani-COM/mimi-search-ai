@@ -36,6 +36,7 @@ create unique index if not exists telegram_worker_tasks_one_active_discovery_idx
 alter table public.telegram_channels
   add column if not exists last_synced_message_id bigint,
   add column if not exists history_cursor_message_id bigint,
+  add column if not exists initial_history_latest_message_id bigint,
   add column if not exists initial_history_complete boolean not null default false,
   add column if not exists last_collected_at timestamptz,
   add column if not exists collection_enabled boolean not null default false,
@@ -129,3 +130,7 @@ create unique index if not exists telegram_worker_tasks_one_active_collection_id
 create index if not exists telegram_channels_history_cursor_idx
   on public.telegram_channels(workspace_id, history_cursor_message_id)
   where initial_history_complete = false;
+
+create unique index if not exists telegram_channel_sources_deduplicate_idx
+  on public.telegram_channel_discovery_sources(workspace_id, channel_id, source_kind, source_url)
+  where source_url is not null;
