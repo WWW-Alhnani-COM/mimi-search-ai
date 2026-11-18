@@ -3,6 +3,7 @@ import { NextResponse } from "next/server";
 import { createTelegramAdminClient } from "@/lib/telegram/auth-server";
 import { discoverTelegramChannels } from "@/lib/telegram/discovery-engine";
 import { collectTelegramChannel } from "@/lib/telegram/collection-engine";
+import { processTelegramSourceItem } from "@/lib/telegram/lead-processing-engine";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -43,6 +44,10 @@ export async function POST(request: Request) {
         const channelId = typeof task.payload?.channelId === "string" ? task.payload.channelId : "";
         if (!channelId) throw new Error("CHANNEL_ID_MISSING");
         result = await collectTelegramChannel(admin, task.workspace_id, channelId) as unknown as Record<string, unknown>;
+      } else if (task.task_type === "process_source_item") {
+        const sourceItemId = typeof task.payload?.sourceItemId === "string" ? task.payload.sourceItemId : "";
+        if (!sourceItemId) throw new Error("SOURCE_ITEM_ID_MISSING");
+        result = await processTelegramSourceItem(admin, task.workspace_id, sourceItemId) as unknown as Record<string, unknown>;
       } else {
         throw new Error("UNSUPPORTED_TASK_TYPE");
       }
