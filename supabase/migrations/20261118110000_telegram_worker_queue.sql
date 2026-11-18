@@ -235,3 +235,35 @@ alter table public.telegram_discovery_settings
 create index if not exists telegram_discovery_settings_due_idx
   on public.telegram_discovery_settings(next_discovery_at)
   where discovery_enabled = true;
+
+-- Monthly free-tier request budget for the shared Tavily search key.
+create table if not exists public.telegram_discovery_provider_usage (
+  provider text not null check (provider = 'tavily'),
+  usage_month date not null,
+  requests integer not null default 0 check (requests >= 0),
+  updated_at timestamptz not null default now(),
+  primary key (provider, usage_month)
+);
+alter table public.telegram_discovery_provider_usage enable row level security;
+revoke all on public.telegram_discovery_provider_usage from public, anon, authenticated;
+grant all privileges on public.telegram_discovery_provider_usage to service_role;
+
+create or replace function public.claim_telegram_discovery_credit(p_monthly_limit integer default 900)
+returns boolean language plpgsql security definer set search_path to ''
+as $function$
+declare claimed boolean := false;
+declare month_start date := date_trunc('month', now() at time zone 'utc')::date;
+begin
+  if coalesce(auth.jwt()->>'role','') <> 'service_role' then raise exception 'forbidden'; end if;
+  if p_monthly_limit is null or p_monthly_limit < 1 or p_monthly_limit > 900 then raise exception 'invalid_monthly_limit'; end if;
+  insert into public.telegram_discovery_provider_usage(provider, usage_month)
+  values ('tavily', month_start) on conflict (provider, usage_month) do nothing;
+  update public.telegram_discovery_provider_usage
+  set requests = requests + 1, updated_at = now()
+  where provider = 'tavily' and usage_month = month_start and requests < p_monthly_limit;
+  claimed := found;
+  return claimed;
+end;
+$function$;
+revoke all on function public.claim_telegram_discovery_credit(integer) from public,anon,authenticated;
+grant execute on function public.claim_telegram_discovery_credit(integer) to service_role;
