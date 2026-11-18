@@ -23,9 +23,8 @@ type SourceItem = {
   id: string;
   workspace_id: string;
   text_content: string | null;
+  language_code: string | null;
   published_at: string | null;
-  country_code: string | null;
-  city_id: string | null;
 };
 
 const ranges: Record<string, number> = {
