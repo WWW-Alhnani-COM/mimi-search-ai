@@ -1,0 +1,110 @@
+-- Telegram worker queue and incremental collection metadata.
+-- Additive only. Queue consumers use a service-role-only claim function.
+
+create table if not exists public.telegram_worker_tasks (
+  id uuid primary key default gen_random_uuid(),
+  workspace_id uuid not null references public.workspaces(id) on delete cascade,
+  task_type text not null check (task_type in ('discover_channels','collect_channel','process_source_item')),
+  status text not null default 'queued'
+    check (status in ('queued','running','completed','partial','failed','cancelled')),
+  payload jsonb not null default '{}'::jsonb,
+  attempts integer not null default 0 check (attempts >= 0),
+  max_attempts integer not null default 4 check (max_attempts between 1 and 10),
+  available_at timestamptz not null default now(),
+  locked_at timestamptz,
+  locked_by text,
+  last_error text,
+  result jsonb not null default '{}'::jsonb,
+  created_by uuid references auth.users(id) on delete set null,
+  started_at timestamptz,
+  finished_at timestamptz,
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now(),
+  unique (id, workspace_id)
+);
+
+create index if not exists telegram_worker_tasks_claim_idx
+  on public.telegram_worker_tasks(status, available_at, created_at)
+  where status in ('queued','running');
+create index if not exists telegram_worker_tasks_workspace_idx
+  on public.telegram_worker_tasks(workspace_id, created_at desc);
+
+create unique index if not exists telegram_worker_tasks_one_active_discovery_idx
+  on public.telegram_worker_tasks(workspace_id, task_type)
+  where status in ('queued','running') and task_type = 'discover_channels';
+
+alter table public.telegram_channels
+  add column if not exists last_synced_message_id bigint,
+  add column if not exists last_collected_at timestamptz,
+  add column if not exists collection_enabled boolean not null default false,
+  add column if not exists last_collection_status text
+    check (last_collection_status is null or last_collection_status in ('idle','queued','running','completed','partial','failed'));
+
+alter table public.telegram_worker_tasks enable row level security;
+
+drop policy if exists telegram_worker_tasks_workspace_select on public.telegram_worker_tasks;
+create policy telegram_worker_tasks_workspace_select
+  on public.telegram_worker_tasks for select to authenticated
+  using (private.is_workspace_member(workspace_id));
+
+drop policy if exists telegram_worker_tasks_workspace_insert on public.telegram_worker_tasks;
+create policy telegram_worker_tasks_workspace_insert
+  on public.telegram_worker_tasks for insert to authenticated
+  with check (
+    private.is_workspace_editor(workspace_id)
+    and created_by = (select auth.uid())
+    and status = 'queued'
+  );
+
+grant select, insert on public.telegram_worker_tasks to authenticated;
+grant all privileges on public.telegram_worker_tasks to service_role;
+
+create or replace function public.claim_telegram_worker_tasks(
+  p_worker_id text,
+  p_limit integer default 3
+)
+returns setof public.telegram_worker_tasks
+language plpgsql
+security definer
+set search_path to ''
+as $function$
+begin
+  if coalesce(auth.jwt()->>'role','') <> 'service_role' then
+    raise exception 'forbidden';
+  end if;
+  if p_worker_id is null or length(trim(p_worker_id)) < 3 or length(p_worker_id) > 120 then
+    raise exception 'invalid_worker_id';
+  end if;
+
+  return query
+  with picked as (
+    select t.id
+    from public.telegram_worker_tasks t
+    where (
+      (t.status = 'queued' and t.available_at <= now())
+      or (t.status = 'running' and t.locked_at < now() - interval '10 minutes')
+    )
+    and t.attempts < t.max_attempts
+    order by t.available_at, t.created_at
+    for update skip locked
+    limit greatest(1, least(coalesce(p_limit, 3), 10))
+  )
+  update public.telegram_worker_tasks t
+  set status = 'running',
+      attempts = t.attempts + 1,
+      locked_at = now(),
+      locked_by = p_worker_id,
+      started_at = coalesce(t.started_at, now()),
+      updated_at = now()
+  from picked
+  where t.id = picked.id
+  returning t.*;
+end;
+$function$;
+
+revoke all on function public.claim_telegram_worker_tasks(text,integer) from public, anon, authenticated;
+grant execute on function public.claim_telegram_worker_tasks(text,integer) to service_role;
+
+create index if not exists telegram_channels_collection_due_idx
+  on public.telegram_channels(workspace_id, last_collected_at)
+  where status = 'approved' and collection_enabled = true;
