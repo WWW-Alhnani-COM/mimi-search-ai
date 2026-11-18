@@ -8,7 +8,7 @@ create table if not exists public.telegram_channels (
   workspace_id uuid not null references public.workspaces(id) on delete cascade,
   telegram_peer_id bigint,
   username text,
-  title text not null,
+  title text,
   about text,
   public_url text,
   channel_kind text not null default 'channel'
@@ -29,7 +29,7 @@ create table if not exists public.telegram_channels (
   created_at timestamptz not null default now(),
   updated_at timestamptz not null default now(),
   unique (id, workspace_id),
-  check (telegram_peer_id is not null or username is not null),
+  check (telegram_peer_id is not null or (username is not null and length(trim(username)) > 0)),
   check (status <> 'approved' or approved_at is not null)
 );
 
@@ -38,7 +38,7 @@ create unique index if not exists telegram_channels_workspace_peer_uidx
   where telegram_peer_id is not null;
 
 create unique index if not exists telegram_channels_workspace_username_uidx
-  on public.telegram_channels(workspace_id, lower(ltrim(username, '@')))
+  on public.telegram_channels(workspace_id, lower(ltrim(trim(username), '@')))
   where username is not null;
 
 create index if not exists telegram_channels_workspace_status_idx
@@ -46,6 +46,14 @@ create index if not exists telegram_channels_workspace_status_idx
 
 create index if not exists telegram_channels_workspace_country_idx
   on public.telegram_channels(workspace_id, country_code, city_id);
+create index if not exists telegram_channels_approved_by_fk_idx
+  on public.telegram_channels(approved_by) where approved_by is not null;
+create index if not exists telegram_channels_city_fk_idx
+  on public.telegram_channels(city_id) where city_id is not null;
+create index if not exists telegram_channels_country_fk_idx
+  on public.telegram_channels(country_code) where country_code is not null;
+create index if not exists telegram_channels_created_by_fk_idx
+  on public.telegram_channels(created_by) where created_by is not null;
 
 create table if not exists public.telegram_channel_discovery_sources (
   id uuid primary key default gen_random_uuid(),
@@ -68,6 +76,11 @@ create table if not exists public.telegram_channel_discovery_sources (
 
 create index if not exists telegram_channel_sources_channel_idx
   on public.telegram_channel_discovery_sources(workspace_id, channel_id, discovered_at desc);
+create index if not exists telegram_channel_sources_channel_fk_idx
+  on public.telegram_channel_discovery_sources(channel_id, workspace_id);
+create index if not exists telegram_channel_sources_origin_fk_idx
+  on public.telegram_channel_discovery_sources(discovered_from_channel_id, workspace_id)
+  where discovered_from_channel_id is not null;
 
 create table if not exists public.telegram_channel_relations (
   id uuid primary key default gen_random_uuid(),
@@ -89,6 +102,10 @@ create table if not exists public.telegram_channel_relations (
 
 create index if not exists telegram_channel_relations_related_idx
   on public.telegram_channel_relations(workspace_id, related_channel_id);
+create index if not exists telegram_channel_relations_channel_fk_idx
+  on public.telegram_channel_relations(channel_id, workspace_id);
+create index if not exists telegram_channel_relations_related_fk_idx
+  on public.telegram_channel_relations(related_channel_id, workspace_id);
 
 create table if not exists public.telegram_discovery_settings (
   id uuid primary key default gen_random_uuid(),
@@ -106,6 +123,9 @@ create table if not exists public.telegram_discovery_settings (
   updated_at timestamptz not null default now(),
   check (discovery_enabled = false or schedule_interval <> 'paused')
 );
+
+create index if not exists telegram_discovery_settings_updated_by_fk_idx
+  on public.telegram_discovery_settings(updated_by) where updated_by is not null;
 
 create table if not exists public.telegram_channel_rules (
   id uuid primary key default gen_random_uuid(),
@@ -125,6 +145,10 @@ create table if not exists public.telegram_channel_rules (
 
 create index if not exists telegram_channel_rules_workspace_enabled_idx
   on public.telegram_channel_rules(workspace_id, enabled, priority);
+create index if not exists telegram_channel_rules_country_fk_idx
+  on public.telegram_channel_rules(country_code) where country_code is not null;
+create index if not exists telegram_channel_rules_created_by_fk_idx
+  on public.telegram_channel_rules(created_by) where created_by is not null;
 
 -- Workspace members can view the shared channel registry. Editors can manage it.
 alter table public.telegram_channels enable row level security;
