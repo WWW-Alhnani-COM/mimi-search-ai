@@ -413,6 +413,7 @@ export function TelegramChannelManager({ workspaces, countries }: { workspaces: 
             <br/>لا يوفر Gemini API رقماً موثوقاً للحصة المجانية المتبقية؛ المعروض هنا استهلاك Mimi Search AI فقط.
           </div>
           <p className="text-xs leading-5 text-amber-700 dark:text-amber-300">لمنع الفوترة: لن يرسل النظام طلباً إلا عند تعيين GEMINI_FREE_TIER_ONLY=true وGEMINI_BILLING_DISABLED_CONFIRMED=true واستخدام مشروع Google لا يحتوي على حساب فوترة. لا يتم استخدام Google Search Grounding أو أي نموذج غير مدرج في القائمة.</p>
+          <p className="text-xs leading-5 text-slate-500">تنبيه خصوصية: توضح Google أن محتوى الطلبات في المستوى المجاني قد يُستخدم لتحسين منتجاتها. لا تفعّل هذا الخيار إذا لم تكن موافقاً على مشاركة نصوص المنشورات معها.</p>
         </div>
         <button disabled={saving} className="w-full rounded-xl bg-primary px-4 py-3 font-bold text-white disabled:opacity-50">حفظ إعدادات مساحة العمل</button>
       </form> : <p className="rounded-xl border border-border p-4 text-sm text-slate-500">إعدادات مساحة العمل مشتركة، لكن حسابك يملك صلاحية القراءة فقط.</p>}
