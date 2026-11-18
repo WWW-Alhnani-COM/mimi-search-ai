@@ -29,7 +29,7 @@ async function enqueueScheduledTasks(admin: ReturnType<typeof createTelegramAdmi
       .select("workspace_id,schedule_interval")
       .eq("discovery_enabled", true)
       .or(`next_discovery_at.is.null,next_discovery_at.lte.${nowIso}`)
-      .limit(20);
+      .limit(3);
     for (const setting of dueSettings ?? []) {
       const { data: active } = await admin.from("telegram_worker_tasks").select("id")
         .eq("workspace_id", setting.workspace_id).eq("task_type", "discover_channels")
@@ -53,7 +53,7 @@ async function enqueueScheduledTasks(admin: ReturnType<typeof createTelegramAdmi
     .select("id,workspace_id,last_collection_attempt_at")
     .eq("status", "approved").eq("collection_enabled", true)
     .order("last_collection_attempt_at", { ascending: true, nullsFirst: true })
-    .limit(30);
+    .limit(3);
   for (const channel of dueChannels ?? []) {
     const { data: setting } = await admin.from("telegram_discovery_settings")
       .select("schedule_interval").eq("workspace_id", channel.workspace_id).maybeSingle();
