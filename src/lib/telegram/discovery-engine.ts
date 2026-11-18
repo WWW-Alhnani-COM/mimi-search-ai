@@ -12,7 +12,7 @@ type Rule = {
 type SearchItem = { title?: string; snippet?: string; link?: string };
 type SearchResponse = { items?: SearchItem[]; error?: { message?: string; code?: number } };
 
-const MAX_SEARCH_QUERIES_PER_RUN = 5;
+const MAX_SEARCH_QUERIES_PER_RUN = 1;
 const RESULTS_PER_QUERY = 10;
 
 function normalizeText(value: string) {
@@ -66,6 +66,7 @@ async function googleSearch(query: string, countryCode: string | null) {
 export async function discoverTelegramChannels(
   admin: SupabaseClient,
   workspaceId: string,
+  ruleOffset = 0,
 ) {
   if (process.env.TELEGRAM_DISCOVERY_SEARCH_ENABLED !== "true") {
     throw new Error("DISCOVERY_SEARCH_DISABLED");
@@ -82,7 +83,7 @@ export async function discoverTelegramChannels(
   if (settingsError || rulesError) throw new Error("DISCOVERY_CONFIGURATION_READ_FAILED");
 
   const allRules = (rules ?? []) as Rule[];
-  const includeRules = allRules.filter((rule) => rule.rule_type === "include").slice(0, MAX_SEARCH_QUERIES_PER_RUN);
+  const includeRules = allRules.filter((rule) => rule.rule_type === "include").slice(ruleOffset, ruleOffset + MAX_SEARCH_QUERIES_PER_RUN);
   const excludeRules = allRules.filter((rule) => rule.rule_type === "exclude");
   if (!includeRules.length) throw new Error("DISCOVERY_INCLUDE_RULES_REQUIRED");
 
@@ -188,5 +189,7 @@ export async function discoverTelegramChannels(
     alreadyKnown,
     skipped,
     errors: [...new Set(errors)],
+    hasMore: ruleOffset + includeRules.length < allRules.filter((rule) => rule.rule_type === "include").length,
+    nextRuleOffset: ruleOffset + includeRules.length,
   };
 }
