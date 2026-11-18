@@ -94,8 +94,7 @@ function scoreLead(text: string, item: SourceItem, category: string) {
   ]) ? 9 : 3;
   if (projectDetails > 5) reasons.push("يتضمن تفاصيل عن المشروع أو نطاق الطلب.");
 
-  const geographicClarity = item.country_code || item.city_id ? 5 : 0;
-  if (geographicClarity) reasons.push("الموقع الجغرافي مرتبط بالقناة.");
+  const geographicClarity = 0;
 
   const total = needClarity + purchaseIntent + serviceSpecificity + postRecency + projectDetails + geographicClarity;
   const classification = total >= 75 ? "high" : total >= 50 ? "review" : "low";
@@ -142,15 +141,15 @@ export async function processTelegramSourceItem(admin: SupabaseClient, workspace
     : category === "Business Opportunity" ? "business_opportunity"
     : "services";
   const normalizedIdentity = `telegram_post:${item.external_item_id}`;
-  const displayName = item.author_display_name?.trim() || null;
+  const displayName = null;
 
   const { data: lead, error: leadError } = await admin.from("leads").upsert({
     workspace_id: workspaceId,
     lead_type: "unknown",
     display_name: displayName,
     normalized_identity: normalizedIdentity,
-    country_code: item.country_code,
-    city_id: item.city_id,
+    country_code: null,
+    city_id: null,
     service_category: serviceCategory,
     latest_score: scoring.total,
     classification: scoring.classification,
