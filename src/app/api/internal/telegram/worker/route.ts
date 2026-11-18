@@ -3,6 +3,7 @@ import { NextResponse } from "next/server";
 import { createTelegramAdminClient } from "@/lib/telegram/auth-server";
 import { discoverTelegramChannels } from "@/lib/telegram/discovery-engine";
 import { collectTelegramChannel } from "@/lib/telegram/collection-engine";
+import { verifyDiscoveredTelegramChannel } from "@/lib/telegram/channel-verification-engine";
 import { processTelegramSourceItem } from "@/lib/telegram/lead-processing-engine";
 
 export const runtime = "nodejs";
@@ -109,6 +110,10 @@ export async function POST(request: Request) {
       if (task.task_type === "discover_channels") {
         const ruleOffset = Number(task.payload?.ruleOffset ?? 0);
         result = await discoverTelegramChannels(admin, task.workspace_id, Number.isInteger(ruleOffset) && ruleOffset >= 0 ? ruleOffset : 0);
+      } else if (task.task_type === "verify_channel") {
+        const channelId = typeof task.payload?.channelId === "string" ? task.payload.channelId : "";
+        if (!channelId) throw new Error("CHANNEL_ID_MISSING");
+        result = await verifyDiscoveredTelegramChannel(admin, task.workspace_id, channelId) as unknown as Record<string, unknown>;
       } else if (task.task_type === "collect_channel") {
         const channelId = typeof task.payload?.channelId === "string" ? task.payload.channelId : "";
         if (!channelId) throw new Error("CHANNEL_ID_MISSING");
@@ -161,7 +166,7 @@ export async function POST(request: Request) {
         "DISCOVERY_INCLUDE_RULES_REQUIRED", "TELEGRAM_CONNECTION_REQUIRED",
         "TELEGRAM_SESSION_NOT_FOUND", "TELEGRAM_SESSION_INVALID", "TELEGRAM_SESSION_EXPIRED",
         "TELEGRAM_CHANNEL_UNAVAILABLE", "TELEGRAM_CONFIGURATION_MISSING", "TELEGRAM_ENCRYPTION_KEY_INVALID",
-        "CHANNEL_NOT_FOUND", "CHANNEL_NOT_APPROVED",
+        "CHANNEL_NOT_FOUND", "CHANNEL_NOT_APPROVED", "CHANNEL_USERNAME_MISSING",
       ]);
       const retryable = task.attempts < task.max_attempts && !permanentErrors.has(message);
       const safeMessage = /^[A-Z0-9_]{3,80}$/.test(message) ? message : "WORKER_TASK_FAILED";
