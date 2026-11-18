@@ -98,13 +98,11 @@ export async function POST(request: Request) {
     if (connectionError || !connection) throw new Error("TELEGRAM_CONNECTION_SAVE_FAILED");
 
     const encryptedSession = encryptTelegramState({ sessionString: session.save() });
-    const { error: secretError } = await admin.from("source_connection_secrets").upsert({
-      connection_id: connection.id,
-      workspace_id: attempt.workspace_id,
-      secret_payload_ciphertext: encryptedSession,
-      encryption_key_version: "v1",
-      updated_at: new Date().toISOString(),
-    }, { onConflict: "connection_id" });
+    const { error: secretError } = await admin.rpc("store_telegram_session", {
+      target_connection_id: connection.id,
+      target_workspace_id: attempt.workspace_id,
+      encrypted_payload: encryptedSession,
+    });
     if (secretError) throw new Error("TELEGRAM_SESSION_SAVE_FAILED");
 
     await admin.from("telegram_auth_attempts").delete().eq("id", attemptId);
