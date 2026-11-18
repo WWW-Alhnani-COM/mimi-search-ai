@@ -145,8 +145,8 @@ alter table public.telegram_discovery_settings
   add column if not exists ai_enabled boolean not null default false,
   add column if not exists ai_provider text not null default 'local'
     check (ai_provider in ('local','gemini')),
-  add column if not exists ai_model text not null default 'gemini-2.5-flash-lite'
-    check (ai_model in ('gemini-2.5-flash-lite','gemini-2.5-flash')),
+  add column if not exists ai_model text not null default 'gemini-3.5-flash-lite'
+    check (ai_model in ('gemini-3.5-flash-lite')),
   add column if not exists ai_daily_request_limit integer not null default 50
     check (ai_daily_request_limit between 1 and 100);
 
