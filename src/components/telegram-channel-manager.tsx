@@ -4,7 +4,8 @@ import { useCallback, useEffect, useMemo, useState, type FormEvent } from "react
 import { createClient } from "@/lib/supabase/client";
 import { Archive, Check, CirclePause, LoaderCircle, Plus, RefreshCw, Search, Settings2, SlidersHorizontal, Trash2 } from "lucide-react";
 
-type Workspace = { id: string; name: string };
+type Workspace = { id: string; name: string; canManage: boolean };
+type DiscoverySource = { channel_id: string; source_kind: string; source_url: string | null; search_query: string | null; discovered_at: string };
 type Country = { code: string; name_ar: string; name_en: string };
 type Channel = {
   id: string; workspace_id: string; username: string | null; title: string | null; about: string | null;
@@ -36,6 +37,7 @@ export function TelegramChannelManager({ workspaces, countries }: { workspaces: 
   const supabase = useMemo(() => createClient(), []);
   const [workspaceId, setWorkspaceId] = useState(workspaces[0]?.id ?? "");
   const [channels, setChannels] = useState<Channel[]>([]);
+  const [sources, setSources] = useState<DiscoverySource[]>([]);
   const [rules, setRules] = useState<Rule[]>([]);
   const [cities, setCities] = useState<City[]>([]);
   const [settings, setSettings] = useState<Settings>(initialSettings);
@@ -60,15 +62,17 @@ export function TelegramChannelManager({ workspaces, countries }: { workspaces: 
   const load = useCallback(async () => {
     if (!workspaceId) return;
     setLoading(true); setError("");
-    const [channelResult, ruleResult, settingsResult, cityResult] = await Promise.all([
+    const [channelResult, ruleResult, settingsResult, cityResult, sourceResult] = await Promise.all([
       supabase.from("telegram_channels").select("id,workspace_id,username,title,about,public_url,status,country_code,city_id,category,discovery_method,evaluation_score,created_at").eq("workspace_id", workspaceId).order("created_at", { ascending: false }),
       supabase.from("telegram_channel_rules").select("id,rule_type,match_type,rule_value,country_code,enabled,priority").eq("workspace_id", workspaceId).order("priority"),
       supabase.from("telegram_discovery_settings").select("discovery_enabled,schedule_interval,auto_approve_enabled,minimum_approval_score,default_history_days").eq("workspace_id", workspaceId).maybeSingle(),
       supabase.from("cities").select("id,country_code,name_ar").order("name_ar"),
+      supabase.from("telegram_channel_discovery_sources").select("channel_id,source_kind,source_url,search_query,discovered_at").eq("workspace_id", workspaceId).order("discovered_at", { ascending: false }),
     ]);
-    const firstError = channelResult.error ?? ruleResult.error ?? settingsResult.error ?? cityResult.error;
+    const firstError = channelResult.error ?? ruleResult.error ?? settingsResult.error ?? cityResult.error ?? sourceResult.error;
     if (firstError) setError("تعذر تحميل بيانات إدارة القنوات. تحقق من تطبيق ترحيل قاعدة البيانات وصلاحيات مساحة العمل.");
     setChannels((channelResult.data ?? []) as Channel[]);
+    setSources((sourceResult.data ?? []) as DiscoverySource[]);
     setRules((ruleResult.data ?? []) as Rule[]);
     setSettings(settingsResult.data ? { ...initialSettings, ...settingsResult.data } : initialSettings);
     setCities((cityResult.data ?? []) as City[]);
@@ -86,6 +90,7 @@ export function TelegramChannelManager({ workspaces, countries }: { workspaces: 
   }), [channels, search, statusFilter]);
 
   const visibleCities = cities.filter((city) => city.country_code === countryCode);
+  const canManage = workspaces.find((workspace) => workspace.id === workspaceId)?.canManage ?? false;
   const counts = useMemo(() => ({
     all: channels.length,
     candidate: channels.filter((item) => item.status === "candidate").length,
@@ -96,8 +101,15 @@ export function TelegramChannelManager({ workspaces, countries }: { workspaces: 
   async function addChannel(event: FormEvent<HTMLFormElement>) {
     event.preventDefault(); setSaving(true); setMessage(""); setError("");
     const raw = usernameInput.trim();
-    const match = raw.match(/(?:https?:\/\/)?(?:www\.)?t\.me\/([a-zA-Z0-9_]{5,32})\/?(?:\?.*)?$/i);
-    const username = (match?.[1] ?? raw.replace(/^@/, "")).trim();
+    let username = raw.replace(/^@/, "");
+    if (raw.includes("://") || /^www\.t\.me\//i.test(raw) || /^t\.me\//i.test(raw)) {
+      try {
+        const parsed = new URL(raw.startsWith("http") ? raw : "https://" + raw);
+        const segments = parsed.pathname.split("/").filter(Boolean);
+        if (!["t.me", "www.t.me"].includes(parsed.hostname.toLowerCase()) || segments.length !== 1) throw new Error("INVALID_PUBLIC_CHANNEL_URL");
+        username = segments[0];
+      } catch { username = ""; }
+    }
     if (!/^[a-zA-Z0-9_]{5,32}$/.test(username)) {
       setError("أدخل اسم مستخدم عام صحيحاً أو رابطاً من نوع t.me/username.");
       setSaving(false); return;
@@ -117,8 +129,10 @@ export function TelegramChannelManager({ workspaces, countries }: { workspaces: 
         source_metadata: { submitted_by: "workspace_user" },
       });
       if (sourceError) {
-        setMessage("أُضيفت القناة، لكن تعذر حفظ سجل مصدر الإضافة. يمكنك متابعة مراجعتها.");
-      } else setMessage("تمت إضافة القناة إلى قائمة المراجعة.");
+        await supabase.from("telegram_channels").delete().eq("id", data.id).eq("workspace_id", workspaceId);
+        throw sourceError;
+      }
+      setMessage("تمت إضافة القناة إلى قائمة المراجعة.");
       setTitle(""); setUsernameInput(""); setAbout(""); setCountryCode(""); setCityId(""); setCategory("");
       await load();
     } catch (err) {
@@ -132,6 +146,7 @@ export function TelegramChannelManager({ workspaces, countries }: { workspaces: 
     const { data: auth } = await supabase.auth.getUser();
     const patch: Record<string, unknown> = { status: nextStatus, updated_at: new Date().toISOString() };
     if (nextStatus === "approved") { patch.approved_at = new Date().toISOString(); patch.approved_by = auth.user?.id ?? null; }
+    else { patch.approved_at = null; patch.approved_by = null; }
     const { error: updateError } = await supabase.from("telegram_channels").update(patch).eq("id", channel.id).eq("workspace_id", workspaceId);
     if (updateError) setError("تعذر تحديث حالة القناة. تحقق من صلاحية التحرير.");
     else { setMessage(`تم تحديث حالة القناة إلى: ${statusLabels[nextStatus] ?? nextStatus}.`); await load(); }
@@ -219,21 +234,22 @@ export function TelegramChannelManager({ workspaces, countries }: { workspaces: 
               <span className={`rounded-full px-3 py-1 text-xs font-bold ${statusStyles[channel.status] ?? statusStyles.candidate}`}>{statusLabels[channel.status] ?? channel.status}</span>
             </div>
             {channel.about && <p className="mt-3 line-clamp-3 text-sm leading-6 text-slate-500">{channel.about}</p>}
+            {(() => { const source = sources.find((item) => item.channel_id === channel.id); return source ? <p className="mt-2 text-xs text-slate-400">مصدر الإضافة: {source.source_kind === "manual" ? "إضافة يدوية" : source.source_kind} {source.source_url ? <a href={source.source_url} target="_blank" rel="noreferrer" className="text-primary underline">عرض المصدر</a> : null}</p> : null; })()}
             <div className="mt-3 flex flex-wrap items-center justify-between gap-3 border-t border-border pt-3">
               <div className="text-xs text-slate-400">{channel.country_code ?? "دون تحديد دولة"} · {channel.evaluation_score === null ? "لم تُقيّم بعد" : `التقييم ${channel.evaluation_score}/100`}</div>
               <div className="flex flex-wrap gap-2">
                 {channel.public_url && <a href={channel.public_url} target="_blank" rel="noreferrer" className="rounded-lg border border-border px-3 py-2 text-xs font-semibold">فتح القناة</a>}
-                {channel.status !== "approved" && <button type="button" disabled={saving} onClick={() => void changeStatus(channel, "approved")} className="inline-flex items-center gap-1 rounded-lg bg-emerald-600 px-3 py-2 text-xs font-bold text-white disabled:opacity-50"><Check size={14}/>اعتماد</button>}
-                {channel.status !== "rejected" && <button type="button" disabled={saving} onClick={() => void changeStatus(channel, "rejected")} className="rounded-lg border border-rose-300 px-3 py-2 text-xs font-semibold text-rose-700 disabled:opacity-50">رفض</button>}
-                {channel.status !== "paused" && channel.status !== "archived" && <button type="button" disabled={saving} onClick={() => void changeStatus(channel, "paused")} title="إيقاف" className="rounded-lg border border-border p-2 text-slate-500 disabled:opacity-50"><CirclePause size={15}/></button>}
-                {channel.status !== "archived" && <button type="button" disabled={saving} onClick={() => void changeStatus(channel, "archived")} title="أرشفة" className="rounded-lg border border-border p-2 text-slate-500 disabled:opacity-50"><Archive size={15}/></button>}
-                {channel.status === "paused" && <button type="button" disabled={saving} onClick={() => void changeStatus(channel, "review")} className="rounded-lg border border-border px-3 py-2 text-xs font-semibold">إعادة للمراجعة</button>}
+                {canManage && channel.status !== "approved" && <button type="button" disabled={saving} onClick={() => void changeStatus(channel, "approved")} className="inline-flex items-center gap-1 rounded-lg bg-emerald-600 px-3 py-2 text-xs font-bold text-white disabled:opacity-50"><Check size={14}/>اعتماد</button>}
+                {canManage && channel.status !== "rejected" && <button type="button" disabled={saving} onClick={() => void changeStatus(channel, "rejected")} className="rounded-lg border border-rose-300 px-3 py-2 text-xs font-semibold text-rose-700 disabled:opacity-50">رفض</button>}
+                {canManage && channel.status !== "paused" && channel.status !== "archived" && <button type="button" disabled={saving} onClick={() => void changeStatus(channel, "paused")} title="إيقاف" className="rounded-lg border border-border p-2 text-slate-500 disabled:opacity-50"><CirclePause size={15}/></button>}
+                {canManage && channel.status !== "archived" && <button type="button" disabled={saving} onClick={() => void changeStatus(channel, "archived")} title="أرشفة" className="rounded-lg border border-border p-2 text-slate-500 disabled:opacity-50"><Archive size={15}/></button>}
+                {canManage && (channel.status === "paused" || channel.status === "rejected" || channel.status === "archived") && <button type="button" disabled={saving} onClick={() => void changeStatus(channel, "review")} className="rounded-lg border border-border px-3 py-2 text-xs font-semibold">إعادة للمراجعة</button>}
               </div>
             </div>
           </article>)}</div>}
       </section>
 
-      <section className="h-fit rounded-2xl border border-border bg-card p-4 md:p-5">
+      {canManage && <section className="h-fit rounded-2xl border border-border bg-card p-4 md:p-5">
         <div className="mb-4 flex items-center gap-2"><Plus size={18} className="text-primary"/><h2 className="font-extrabold">إضافة قناة عامة</h2></div>
         <form onSubmit={addChannel} className="space-y-3">
           <label className="block text-sm font-semibold">رابط القناة أو اسم المستخدم
@@ -259,8 +275,9 @@ export function TelegramChannelManager({ workspaces, countries }: { workspaces: 
           <button disabled={saving} className="flex w-full items-center justify-center gap-2 rounded-xl bg-primary px-4 py-3 text-sm font-bold text-white disabled:opacity-50"><Plus size={16}/>إضافة إلى المراجعة</button>
         </form>
         <p className="mt-3 text-xs leading-6 text-slate-400">تُضاف القناة بحالة «قيد المراجعة». لا يتم الانضمام إليها أو جمع منشوراتها تلقائياً.</p>
-      </section>
+      </section>}
     </div>}
+    {!canManage && tab === "channels" && <p className="text-xs text-slate-500">صلاحية القراءة فقط: لا يملك دورك صلاحية تعديل قنوات مساحة العمل.</p>}
 
     {tab === "rules" && <section className="grid gap-5 lg:grid-cols-[minmax(0,1fr)_340px]">
       <div className="rounded-2xl border border-border bg-card p-4 md:p-5">
@@ -268,10 +285,10 @@ export function TelegramChannelManager({ workspaces, countries }: { workspaces: 
         {rules.length === 0 ? <p className="rounded-xl border border-dashed border-border p-7 text-center text-sm text-slate-500">لا توجد قواعد بعد. أضف كلمات أو عبارات لتستخدمها آلية التقييم لاحقاً.</p> :
           <div className="space-y-2">{rules.map((rule) => <div key={rule.id} className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-border p-3">
             <div className="min-w-0"><div className="flex flex-wrap items-center gap-2"><span className={`rounded-full px-2 py-1 text-[11px] font-bold ${rule.rule_type === "include" ? "bg-emerald-100 text-emerald-800" : "bg-rose-100 text-rose-800"}`}>{rule.rule_type === "include" ? "تضمين" : "استبعاد"}</span><span className="font-semibold">{rule.rule_value}</span></div><div className="mt-1 text-xs text-slate-500">{rule.match_type} · {rule.country_code ?? "كل الدول"} · أولوية {rule.priority}</div></div>
-            <div className="flex items-center gap-2"><button type="button" disabled={saving} onClick={() => void toggleRule(rule)} className="rounded-lg border border-border px-3 py-2 text-xs font-semibold">{rule.enabled ? "تعطيل" : "تفعيل"}</button><button type="button" disabled={saving} onClick={() => void deleteRule(rule)} aria-label="حذف القاعدة" className="rounded-lg border border-border p-2 text-rose-600"><Trash2 size={15}/></button></div>
+            {canManage && <div className="flex items-center gap-2"><button type="button" disabled={saving} onClick={() => void toggleRule(rule)} className="rounded-lg border border-border px-3 py-2 text-xs font-semibold">{rule.enabled ? "تعطيل" : "تفعيل"}</button><button type="button" disabled={saving} onClick={() => void deleteRule(rule)} aria-label="حذف القاعدة" className="rounded-lg border border-border p-2 text-rose-600"><Trash2 size={15}/></button></div>}
           </div>)}</div>}
       </div>
-      <div className="h-fit rounded-2xl border border-border bg-card p-4 md:p-5">
+      {canManage && <div className="h-fit rounded-2xl border border-border bg-card p-4 md:p-5">
         <h2 className="mb-4 font-extrabold">إضافة قاعدة</h2>
         <form onSubmit={addRule} className="space-y-3">
           <label className="block text-sm font-semibold">نوع القاعدة<select value={ruleType} onChange={(event) => setRuleType(event.target.value as "include" | "exclude")} className="mt-2 w-full rounded-xl border border-border bg-background px-3 py-3"><option value="include">تضمين / إشارة إيجابية</option><option value="exclude">استبعاد / إشارة سلبية</option></select></label>
@@ -280,19 +297,20 @@ export function TelegramChannelManager({ workspaces, countries }: { workspaces: 
           <label className="block text-sm font-semibold">الدولة (اختياري)<select value={ruleCountry} onChange={(event) => setRuleCountry(event.target.value)} className="mt-2 w-full rounded-xl border border-border bg-background px-3 py-3"><option value="">كل الدول</option>{countries.map((country) => <option key={country.code} value={country.code}>{country.name_ar}</option>)}</select></label>
           <button disabled={saving} className="w-full rounded-xl bg-primary px-4 py-3 text-sm font-bold text-white">حفظ القاعدة</button>
         </form>
-      </div>
+      </div>}
     </section>}
+    {!canManage && tab === "rules" && <p className="text-xs text-slate-500">صلاحية القراءة فقط: إدارة قواعد التقييم متاحة للمحررين المخولين في مساحة العمل.</p>}
 
     {tab === "settings" && <section className="max-w-3xl rounded-2xl border border-border bg-card p-4 md:p-6">
       <div className="mb-5 flex items-center gap-3"><Settings2 className="text-primary"/><div><h2 className="font-extrabold">إعدادات الاكتشاف المشتركة</h2><p className="mt-1 text-xs text-slate-500">تُحفظ كإعدادات مساحة العمل ولا تشغّل أي مهام حالياً.</p></div></div>
-      <form onSubmit={saveSettings} className="space-y-5">
+      {canManage ? <form onSubmit={saveSettings} className="space-y-5">
         <label className="flex items-start justify-between gap-4 rounded-xl border border-border p-4"><span><span className="block text-sm font-bold">تفعيل الاكتشاف التلقائي</span><span className="mt-1 block text-xs leading-5 text-slate-500">الإعداد محفوظ فقط؛ محرك الاكتشاف غير مفعّل في هذه المرحلة.</span></span><input type="checkbox" checked={settings.discovery_enabled} onChange={(event) => setSettings((value) => ({ ...value, discovery_enabled: event.target.checked, schedule_interval: event.target.checked && value.schedule_interval === "paused" ? "daily" : value.schedule_interval }))} className="mt-1 h-5 w-5 accent-blue-600"/></label>
         <label className="block text-sm font-semibold">تكرار الاكتشاف<select value={settings.schedule_interval} onChange={(event) => setSettings((value) => ({ ...value, schedule_interval: event.target.value, discovery_enabled: event.target.value === "paused" ? false : value.discovery_enabled }))} className="mt-2 w-full rounded-xl border border-border bg-background px-3 py-3"><option value="hourly">كل ساعة</option><option value="every_6_hours">كل 6 ساعات</option><option value="every_12_hours">كل 12 ساعة</option><option value="daily">يومياً</option><option value="paused">إيقاف مؤقت</option></select></label>
         <label className="flex items-center justify-between gap-4 rounded-xl border border-border p-4"><span className="text-sm font-bold">الاعتماد التلقائي للقنوات المؤهلة</span><input type="checkbox" checked={settings.auto_approve_enabled} onChange={(event) => setSettings((value) => ({ ...value, auto_approve_enabled: event.target.checked }))} className="h-5 w-5 accent-blue-600"/></label>
         <label className="block text-sm font-semibold">الحد الأدنى لدرجة الاعتماد التلقائي: {settings.minimum_approval_score}/100<input type="range" min="0" max="100" step="5" value={settings.minimum_approval_score} onChange={(event) => setSettings((value) => ({ ...value, minimum_approval_score: Number(event.target.value) }))} className="mt-3 w-full accent-blue-600"/></label>
         <label className="block text-sm font-semibold">النطاق التاريخي الافتراضي للبحث<select value={settings.default_history_days} onChange={(event) => setSettings((value) => ({ ...value, default_history_days: Number(event.target.value) }))} className="mt-2 w-full rounded-xl border border-border bg-background px-3 py-3">{[1,3,7,10,15,30].map((days) => <option key={days} value={days}>آخر {days} {days === 1 ? "يوم" : "أيام"}</option>)}</select></label>
         <button disabled={saving} className="w-full rounded-xl bg-primary px-4 py-3 font-bold text-white disabled:opacity-50">حفظ إعدادات مساحة العمل</button>
-      </form>
+      </form> : <p className="rounded-xl border border-border p-4 text-sm text-slate-500">إعدادات مساحة العمل مشتركة، لكن حسابك يملك صلاحية القراءة فقط.</p>}
     </section>}
   </div>;
 }
