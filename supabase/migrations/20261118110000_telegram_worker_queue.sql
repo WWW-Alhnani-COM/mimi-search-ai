@@ -302,3 +302,7 @@ for each row execute function private.enqueue_telegram_source_item();
 create unique index if not exists telegram_worker_tasks_one_active_verification_idx
   on public.telegram_worker_tasks(workspace_id, (payload->>'channelId'))
   where status in ('queued','running') and task_type = 'verify_channel';
+
+alter table public.source_items
+  add column if not exists language_code text
+    check (language_code is null or length(language_code) between 2 and 12);
