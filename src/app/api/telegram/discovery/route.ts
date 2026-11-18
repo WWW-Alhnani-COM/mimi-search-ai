@@ -49,7 +49,7 @@ export async function POST(request: Request) {
         workspace_id: workspaceId,
         task_type: "discover_channels",
         status: "queued",
-        payload: { requestedBy: "workspace_user", requestedAt: new Date().toISOString() },
+        payload: { ruleOffset: 0, requestedBy: "workspace_user", requestedAt: new Date().toISOString() },
         created_by: auth.user.id,
       })
       .select("id,status,created_at")
