@@ -57,6 +57,7 @@ export function TelegramChannelManager({ workspaces, countries }: { workspaces: 
   const [loading, setLoading] = useState(false);
   const [saving, setSaving] = useState(false);
   const [discovering, setDiscovering] = useState(false);
+  const [collectingChannelId, setCollectingChannelId] = useState<string | null>(null);
   const [message, setMessage] = useState("");
   const [error, setError] = useState("");
 
@@ -123,6 +124,33 @@ export function TelegramChannelManager({ workspaces, countries }: { workspaces: 
       setError(err instanceof Error ? err.message : "تعذر طلب اكتشاف القنوات.");
     } finally {
       setDiscovering(false);
+    }
+  }
+
+  async function startCollection(channel: Channel) {
+    setCollectingChannelId(channel.id); setError(""); setMessage("");
+    try {
+      const response = await fetch("/api/telegram/collect", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ workspaceId, channelId: channel.id }),
+      });
+      const result = await response.json().catch(() => ({}));
+      if (!response.ok) {
+        const message = result.error === "CHANNEL_NOT_APPROVED"
+          ? "يجب اعتماد القناة قبل جمع منشوراتها."
+          : result.error === "WORKSPACE_FORBIDDEN"
+            ? "لا تملك صلاحية تشغيل الجمع في مساحة العمل."
+            : "تعذر وضع مهمة جمع المنشورات في قائمة الانتظار.";
+        throw new Error(message);
+      }
+      setMessage(result.alreadyQueued
+        ? "توجد مهمة جمع منشورات لهذه القناة بالفعل."
+        : "تمت إضافة مهمة جمع منشورات القناة إلى قائمة الانتظار.");
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "تعذر طلب جمع المنشورات.");
+    } finally {
+      setCollectingChannelId(null);
     }
   }
 
@@ -266,7 +294,7 @@ export function TelegramChannelManager({ workspaces, countries }: { workspaces: 
             <div className="mt-3 flex flex-wrap items-center justify-between gap-3 border-t border-border pt-3">
               <div className="text-xs text-slate-400">{channel.country_code ?? "دون تحديد دولة"} · {channel.evaluation_score === null ? "لم تُقيّم بعد" : `التقييم ${channel.evaluation_score}/100`}</div>
               <div className="flex flex-wrap gap-2">
-                {channel.public_url && <a href={channel.public_url} target="_blank" rel="noreferrer" className="rounded-lg border border-border px-3 py-2 text-xs font-semibold">فتح القناة</a>}
+                {channel.public_url && <a href={channel.public_url} target="_blank" rel="noreferrer" className="rounded-lg border border-border px-3 py-2 text-xs font-semibold">فتح القناة</a>}\n                {canManage && channel.status === "approved" && <button type="button" disabled={Boolean(collectingChannelId) || saving} onClick={() => void startCollection(channel)} className="rounded-lg border border-primary px-3 py-2 text-xs font-semibold text-primary disabled:opacity-50">{collectingChannelId === channel.id ? "جارٍ الإرسال…" : "جمع المنشورات"}</button>}
                 {canManage && channel.status !== "approved" && <button type="button" disabled={saving} onClick={() => void changeStatus(channel, "approved")} className="inline-flex items-center gap-1 rounded-lg bg-emerald-600 px-3 py-2 text-xs font-bold text-white disabled:opacity-50"><Check size={14}/>اعتماد</button>}
                 {canManage && channel.status !== "rejected" && <button type="button" disabled={saving} onClick={() => void changeStatus(channel, "rejected")} className="rounded-lg border border-rose-300 px-3 py-2 text-xs font-semibold text-rose-700 disabled:opacity-50">رفض</button>}
                 {canManage && channel.status !== "paused" && channel.status !== "archived" && <button type="button" disabled={saving} onClick={() => void changeStatus(channel, "paused")} title="إيقاف" className="rounded-lg border border-border p-2 text-slate-500 disabled:opacity-50"><CirclePause size={15}/></button>}
