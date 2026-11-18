@@ -93,12 +93,12 @@ language sql
 stable
 security definer
 set search_path = ''
-as $
+as $function$
   select exists (
     select 1 from public.workspace_members wm
     where wm.workspace_id = target_workspace and wm.user_id = (select auth.uid())
   );
-$;
+$function$;
 
 revoke all on function private.is_workspace_member(uuid) from public;
 revoke all on function private.is_workspace_member(uuid) from anon;
